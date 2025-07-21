@@ -6,12 +6,18 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct ZeroWasteApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            LoginView()
+                .modelContainer(for: [User.self, Item.self])
         }
+    }
+    
+    init(){
+        print(URL.applicationDirectory.path(percentEncoded: false))
     }
 }
