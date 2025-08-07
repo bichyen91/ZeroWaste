@@ -98,7 +98,6 @@ struct HomeView: View {
                 .listStyle(.plain)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
                 .scrollContentBackground(.hidden)
-//                .background(Color.white.opacity(0.7))
                 .padding(.horizontal)
             }
             .background(

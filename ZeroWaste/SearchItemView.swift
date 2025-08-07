@@ -6,137 +6,61 @@
 //
 
 import SwiftUI
+import SwiftData
 
-struct FormTopKeyUpdateItem: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
+//struct FormTopKeyUpdateItem: PreferenceKey {
+//    static var defaultValue: CGFloat = 0
+//    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+//        value = nextValue()
+//    }
+//}
 struct SearchItemView: View {
     @State private var formTop: CGFloat = 0
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) var itemsModel
+    @ObservedObject var message = SharedProperties.shared
+    
+    @State private var searchByDate = true
     @State private var itemName = ""
-    @State private var purchaseDate = Date()
-    @State private var expiredDate = Date()
+    @State private var dateFrom = Calendar.current.date(byAdding: .day, value: -7, to: .now)!
+    @State private var dateTo = Date()
     
     var body: some View {
         ZStack{
             VStack{
-                HStack{
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image("ZeroWasteIconTitle")
-                            .resizable()
-                            .frame(width: 130, height: 100)
-                    }
-                    Spacer()
-                }
+                ZeroWasteHeader{dismiss()}
                 
                 Spacer()
                 
-                    ZStack {
-                        VStack(alignment: .leading, spacing: 10) {
-                            
-                            Spacer().frame(height: 60)
-                            
-                            Text("Item name")
-                                .foregroundColor(.gray)
-                            
-                            TextField("Item name", text: $itemName)
-                                .padding().frame(height: 40)
-                                .font(.system(size: 16))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 15)
-                                        .stroke(Color.gray, lineWidth: 2)
-                                }
-                            
-                            HStack{
-                                Text("Purchase date")
-                                    .foregroundColor(.gray)
-                                Spacer()
-                                DatePicker("", selection: $purchaseDate, displayedComponents: .date)
-                                    .datePickerStyle(.automatic)
-                                    .labelsHidden()
-                            }
-                            
-                            HStack{
-                                Spacer()
-                                Button("Search") {
-                                    //Register
-                                }
-                                .frame(width: 170, height: 40)
-                                .font(.system(size: 24))
-                                .foregroundColor(.primary)
-                                .background(Color.gray.opacity(0.3))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(Color.black, lineWidth: 1)
-                                }
-                                Spacer()
-                            }
-                            Spacer()
-                            
-                            HStack{
-                                Spacer()
-                                Button("Save") {
-                                    //Register
-                                }
-                                .frame(width: 120, height: 50)
-                                .font(.system(size: 24))
-                                .foregroundColor(.primary)
-                                .background(Color.gray.opacity(0.3))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(Color.black, lineWidth: 1)
-                                }
-                                Spacer()
-                                Button("Cancel") {
-                                    //Register
-                                }
-                                .frame(width: 120, height: 50)
-                                .font(.system(size: 24))
-                                .foregroundColor(.primary)
-                                .background(Color.gray.opacity(0.3))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(Color.black, lineWidth: 1)
-                                }
-                                Spacer()
-                            }
-                            
-                            Spacer().frame(height: 10)
-                        }
-                    }
+                formSection
                     .padding()
                     .background(
                         GeometryReader { geo in
                             Color.white
-                                .preference(key: FormTopKeyUpdateItem.self, value: geo.frame(in: .global).minY)
+                                .preference(key: FormTopKey.self, value: geo.frame(in: .global).minY)
                         }
                     )
                     .cornerRadius(20)
                     .shadow(radius: 20)
-                    .onPreferenceChange(FormTopKeyUpdateItem.self) { value in
+                    .onPreferenceChange(FormTopKey.self) { value in
                         self.formTop = value
                     }
                     .padding()
                 
-                    
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
-                        
-            Image("Update")
-                .resizable()
-                .frame(width: 120, height: 120)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(Color.white, lineWidth: 4))
-                .position(x: UIScreen.main.bounds.width / 2, y: formTop + 145)
             
-                
+            FormAvatarImage(imageName: "Update", formTop: formTop)
+            
+//            Image("Update")
+//                .resizable()
+//                .frame(width: 120, height: 120)
+//                .clipShape(Circle())
+//                .overlay(Circle().stroke(Color.white, lineWidth: 4))
+//                .position(x: UIScreen.main.bounds.width / 2, y: formTop + 145)
+            
         }
         .background(content: {
             Image("Background")
@@ -145,6 +69,65 @@ struct SearchItemView: View {
                 .ignoresSafeArea()
         })
         .navigationBarBackButtonHidden()
+    }
+    
+    private var formSection: some View {
+        ZStack {
+            VStack(alignment: .leading, spacing: 10) {
+                
+                Spacer().frame(height: 20)
+                
+                Text("Item name")
+                    .foregroundColor(.gray)
+                
+                TextField("Item name", text: $itemName)
+                    .padding().frame(height: 40)
+                    .font(.system(size: 16))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 15)
+                            .stroke(Color.gray, lineWidth: 2)
+                    }
+                
+                HStack{
+                    Text("Purchase date")
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Toggle("", isOn: $searchByDate)
+                        .labelsHidden()
+                }
+                HStack{
+                    DatePicker("", selection: $dateFrom, displayedComponents: .date)
+                        .datePickerStyle(.automatic)
+                        .labelsHidden()
+                        .disabled(!searchByDate)
+                    Spacer()
+                    Text("~")
+                    Spacer()
+                    DatePicker("", selection: $dateTo, displayedComponents: .date)
+                        .datePickerStyle(.automatic)
+                        .labelsHidden()
+                        .disabled(!searchByDate)
+                }
+                
+                HStack{
+                    Spacer()
+                    Button("Search") {
+                        
+                    }
+                    .zeroWasteStyle(width: 170)
+                    Spacer()
+                }
+                
+                List {
+                    
+                }
+                .listStyle(.plain)
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .scrollContentBackground(.hidden)
+                .padding(.horizontal)
+                
+            }
+        }
     }
 }
 

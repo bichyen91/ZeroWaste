@@ -9,7 +9,16 @@ import Foundation
 
 class AIService {
     static let shared = AIService()
-    private let apiKey = "AIzaSyB9CbCrv2w7qD-VxJVTj6Fj9Zd_jhcQQWw"
+    private let apiKey: String = {
+        guard
+            let path = Bundle.main.path(forResource: "Secrets", ofType: "plist"),
+            let dict = NSDictionary(contentsOfFile: path),
+            let key = dict["Gemini API Key"] as? String
+        else {
+            fatalError("No Key Found")
+        }
+        return key
+    }()
     
     func predictExpiredDate(itemName: String, purchaseDate: Date, completion: @escaping (Date?) -> Void){
         let purchaseDateString = SharedProperties.parseDateToString(purchaseDate, to: "yyyy_MM-dd")

@@ -57,8 +57,7 @@ struct ItemDetailView: View {
                         self.formTop = value
                     }
                     .padding()
-                
-                
+
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
