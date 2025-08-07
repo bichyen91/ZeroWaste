@@ -11,20 +11,23 @@ import SwiftData
 struct ItemDetailView: View {
     var isNew: Bool
     var selectedItem: Item?
-    
+    var onSave: (() -> Void)? = nil
+
     @State private var formTop: CGFloat = 0
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) var itemsModel
     @ObservedObject var message = SharedProperties.shared
-    @State private var debounceTimer: Timer? = nil
     
+    @State private var debounceTimer: Timer? = nil
+    @State private var isResetForm = false
+
     @State private var itemCode: String = ""
     @State private var itemName: String = ""
     @State private var purchaseDate = Date()
     @State private var expiredDate: Date = Calendar.current.date(byAdding: .day, value: 7, to: .now)!
     @State private var username = UserSession.shared.currentUser?.username
     
-    init(isNew: Bool = true, selectedItem: Item? = nil) {
+    init(isNew: Bool = true, selectedItem: Item? = nil, onSave: (() -> Void)? = nil) {
         self.isNew = isNew
         self.selectedItem = selectedItem
         _itemCode = State(initialValue: selectedItem?.itemCode ?? "")
@@ -43,20 +46,26 @@ struct ItemDetailView: View {
                 
                 Spacer()
                 
-                formSection
-                    .padding()
-                    .background(
-                        GeometryReader { geo in
-                            Color.white
-                                .preference(key: FormTopKey.self, value: geo.frame(in: .global).minY)
-                        }
-                    )
-                    .cornerRadius(20)
-                    .shadow(radius: 20)
-                    .onPreferenceChange(FormTopKey.self) { value in
-                        self.formTop = value
+                Group {
+                    if isResetForm {
+                        formSection
+                    } else {
+                        formSection
                     }
-                    .padding()
+                }
+                .padding()
+                .background(
+                    GeometryReader { geo in
+                        Color.white
+                            .preference(key: FormTopKey.self, value: geo.frame(in: .global).minY)
+                    }
+                )
+                .cornerRadius(20)
+                .shadow(radius: 20)
+                .onPreferenceChange(FormTopKey.self) { value in
+                    self.formTop = value
+                }
+                .padding()
 
                 Spacer()
             }
@@ -103,7 +112,6 @@ struct ItemDetailView: View {
                     }
                 }
             
-            Spacer().frame(height: 0)
             HStack{
                 Text("Purchase date")
                     .foregroundColor(.gray)
@@ -123,7 +131,6 @@ struct ItemDetailView: View {
                 
             }
             
-            Spacer().frame(height: 0)
             HStack{
                 Text("Expired date")
                     .foregroundColor(.gray)
@@ -159,7 +166,7 @@ struct ItemDetailView: View {
                 Task {
                     do{
                         let lowerItemName = itemName.lowercased()
-                        message.errorMessage = Item.itemValidation(itemName: lowerItemName)
+                        message.errorMessage = Item.itemValidation(itemName: lowerItemName, purchaseDate: purchaseDate, itemsModel: itemsModel)
                         
                         if message.errorMessage.isEmpty {
                             if isNew {
@@ -187,8 +194,15 @@ struct ItemDetailView: View {
                                     resetForm()
                                 }
                                 else {
+                                    onSave?()
                                     dismiss()
                                 }
+                            }
+                        }
+                        else {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                message.errorMessage = ""
+//                                resetForm()
                             }
                         }
                     }
@@ -208,6 +222,7 @@ struct ItemDetailView: View {
     }
     
     private func resetForm() {
+        isResetForm.toggle()
         itemCode = ""
         itemName = ""
         purchaseDate = Date()

@@ -76,7 +76,27 @@ class Item {
         }
     }
     
-    static func getItemsByNameAndDate(from itemsModel: ModelContext, searchName: String, dateFrom: Date, dateTo: Date) -> [Item]{
+    static func existedItem(from itemsModel: ModelContext, name: String, purchaseDate: Date, dateFormat: String = "yyyy-MM-dd") -> Item? {
+        let formattedDate = SharedProperties.parseDateToString(purchaseDate, to: dateFormat)
+        let lowerName = name.lowercased()
+        
+        let fetchDescriptor = FetchDescriptor<Item>(
+            predicate: #Predicate<Item> {
+                $0.itemName == lowerName && $0.purchasedDate == formattedDate
+            },
+            sortBy: [SortDescriptor(\.itemCode, order: .forward)]
+        )
+        
+        do {
+            let items = try itemsModel.fetch(fetchDescriptor)
+            return items.first
+        } catch {
+            print("Fetch error: \(error)")
+            return nil
+        }
+    }
+    
+    static func getItemsByNameAndDateRange(from itemsModel: ModelContext, searchName: String, dateFrom: Date, dateTo: Date) -> [Item]{
         let itemByName = getItemsByName(from: itemsModel, searchName: searchName)
         
         let filterItems = itemByName.filter { item in
@@ -99,10 +119,15 @@ class Item {
     }
     
     
-    static func itemValidation(itemName: String) -> String {
+    static func itemValidation(itemName: String, purchaseDate: Date, itemsModel: ModelContext) -> String {
         guard !itemName.isEmpty else {
             return "Item name is required"
         }
+        
+        if let _ = existedItem(from: itemsModel, name: itemName, purchaseDate: purchaseDate, dateFormat: "yyyy-MM-dd") {
+            return "Item already exists"
+        }
+        
         return ""
     }
 }

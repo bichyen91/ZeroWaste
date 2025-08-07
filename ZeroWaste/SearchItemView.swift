@@ -8,18 +8,16 @@
 import SwiftUI
 import SwiftData
 
-//struct FormTopKeyUpdateItem: PreferenceKey {
-//    static var defaultValue: CGFloat = 0
-//    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-//        value = nextValue()
-//    }
-//}
 struct SearchItemView: View {
+    @Binding var refreshID: UUID
     @State private var formTop: CGFloat = 0
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) var itemsModel
     @ObservedObject var message = SharedProperties.shared
     
+    @State private var hasSearched = false
+    @State private var selectedItem: Item? = nil
+    @State private var itemsSearch: [Item] = []
     @State private var searchByDate = true
     @State private var itemName = ""
     @State private var dateFrom = Calendar.current.date(byAdding: .day, value: -7, to: .now)!
@@ -27,8 +25,8 @@ struct SearchItemView: View {
     
     var body: some View {
         ZStack{
-            VStack{
-                ZeroWasteHeader{dismiss()}
+            VStack(spacing: 0){
+                ZeroWasteHeader{ dismiss() }
                 
                 Spacer()
                 
@@ -40,27 +38,58 @@ struct SearchItemView: View {
                                 .preference(key: FormTopKey.self, value: geo.frame(in: .global).minY)
                         }
                     )
-                    .cornerRadius(20)
+                    .clipShape(RoundedCorner(radius: 20, corners: [.topLeft, .topRight]))
                     .shadow(radius: 20)
                     .onPreferenceChange(FormTopKey.self) { value in
                         self.formTop = value
                     }
-                    .padding()
+                    .padding(.top)
                 
-                Spacer()
+                withAnimation(.easeInOut){
+                    List {
+                        if !hasSearched {
+                            HStack {
+                                Spacer()
+                                Text("Input search criteria... ")
+                                    .transition(.opacity.combined(with: .slide))
+                                    .foregroundColor(.gray)
+                                Spacer()
+                            }
+                        }
+                        else if itemsSearch.isEmpty {
+                            HStack {
+                                Spacer()
+                                Text("No Item found... ")
+                                    .transition(.opacity.combined(with: .slide))
+                                    .foregroundColor(.gray)
+                                Spacer()
+                            }
+                        }
+                        else {
+                            ForEach(itemsSearch, id: \.itemCode) { item in
+                                VStack(alignment: .leading) {
+                                    Text(item.itemName.capitalized)
+                                    Text("Purchased: \(item.purchasedDate)\nExpires: \(item.expiredDate)")
+                                        .font(.subheadline)
+                                        .foregroundColor(.gray)
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedItem = item
+                                }
+                            }
+                        }
+                    }
+                    .listStyle(.plain)
+                    .clipShape(RoundedCorner(radius: 20, corners: [.bottomLeft, .bottomRight]))
+                    .scrollContentBackground(.hidden)
+                    .padding(.bottom)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
             
             FormAvatarImage(imageName: "Update", formTop: formTop)
-            
-//            Image("Update")
-//                .resizable()
-//                .frame(width: 120, height: 120)
-//                .clipShape(Circle())
-//                .overlay(Circle().stroke(Color.white, lineWidth: 4))
-//                .position(x: UIScreen.main.bounds.width / 2, y: formTop + 145)
-            
         }
         .background(content: {
             Image("Background")
@@ -69,6 +98,12 @@ struct SearchItemView: View {
                 .ignoresSafeArea()
         })
         .navigationBarBackButtonHidden()
+        .navigationDestination(item: $selectedItem) { item in
+            ItemDetailView(isNew: false, selectedItem: item) {
+                refreshID = UUID()
+                selectedItem = nil
+            }
+        }
     }
     
     private var formSection: some View {
@@ -84,7 +119,7 @@ struct SearchItemView: View {
                     .padding().frame(height: 40)
                     .font(.system(size: 16))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 15)
+                        RoundedRectangle(cornerRadius: 10)
                             .stroke(Color.gray, lineWidth: 2)
                     }
                 
@@ -112,25 +147,43 @@ struct SearchItemView: View {
                 HStack{
                     Spacer()
                     Button("Search") {
-                        
+                        hasSearched = true
+                        if !itemName.isEmpty && !searchByDate {
+                            itemsSearch = Item.getItemsByName(from: itemsModel, searchName: itemName)
+                        }
+                        else if itemName.isEmpty && searchByDate {
+                            itemsSearch = Item.getItemsByDate(from: itemsModel, dateFrom: dateFrom, dateTo: dateTo)
+                        }
+                        else if !itemName.isEmpty && searchByDate {
+                            itemsSearch = Item.getItemsByNameAndDateRange(from: itemsModel, searchName: itemName, dateFrom: dateFrom, dateTo: dateTo)
+                        }
                     }
                     .zeroWasteStyle(width: 170)
                     Spacer()
                 }
-                
-                List {
-                    
-                }
-                .listStyle(.plain)
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal)
-                
             }
         }
     }
 }
 
+struct RoundedCorner: Shape {
+    var radius: CGFloat = 20.0
+    var corners: UIRectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(
+            roundedRect: rect,
+            byRoundingCorners: corners,
+            cornerRadii: CGSize(width: radius, height: radius)
+        )
+        return Path(path.cgPath)
+    }
+}
+
+extension Item: Identifiable {
+    var id: String { itemCode }
+}
+
 #Preview {
-    SearchItemView()
+    SearchItemView(refreshID: .constant(UUID()))
 }

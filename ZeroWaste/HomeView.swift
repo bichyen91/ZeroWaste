@@ -10,7 +10,8 @@ import SwiftData
 
 struct HomeView: View {
     @Query var items: [Item]
-    @State private var reloadId = UUID()
+    //    @State private var reloadId = UUID()
+    @State private var refreshID = UUID()
     @ObservedObject var message = SharedProperties.shared
     @Environment(\.modelContext) private var itemModel
     
@@ -28,7 +29,7 @@ struct HomeView: View {
                 VStack(spacing: 10) {
                     HStack {
                         Button {
-                            reloadId = UUID()
+                            refreshID = UUID()
                         } label: {
                             Image("ZeroWasteIconTitle")
                                 .resizable()
@@ -50,11 +51,13 @@ struct HomeView: View {
                                 )
                         }
                     }
-
+                    
                     HStack(spacing: 15) {
                         featureButton("Scan", image: "scan", destination: EmptyView())
-                        featureButton("Input", image: "input", destination: ItemDetailView())
-                        featureButton("Update", image: "Update", destination: SearchItemView())
+                        featureButton("Input", image: "input", destination: ItemDetailView(isNew: true) {
+                            refreshID = UUID()
+                        })
+                        featureButton("Update", image: "Update", destination: SearchItemView(refreshID: $refreshID))
                         featureButton("Remove", image: "Remove", destination: RemoveItemsView())
                     }
                 }
@@ -67,7 +70,9 @@ struct HomeView: View {
                 List {
                     if !nonExpiredSorted.isEmpty {
                         ForEach(nonExpiredSorted, id: \.itemCode) { item in
-                            NavigationLink(destination: ItemDetailView(isNew: false, selectedItem: item)) {
+                            NavigationLink(destination: ItemDetailView(isNew: false, selectedItem: item){
+                                refreshID = UUID()
+                            }) {
                                 VStack(alignment: .leading) {
                                     Text(item.itemName.capitalized)
                                     Text("Purchased: \(item.purchasedDate)\nExpires: \(item.expiredDate)")
@@ -80,6 +85,7 @@ struct HomeView: View {
                                     do {
                                         itemModel.delete(item)
                                         try itemModel.save()
+                                        refreshID = UUID()
                                     } catch {
                                         print(error)
                                     }
@@ -107,7 +113,7 @@ struct HomeView: View {
                     .ignoresSafeArea()
             )
             .navigationBarBackButtonHidden()
-            .id(reloadId)
+            .id(refreshID)
         }
     }
     
@@ -135,4 +141,4 @@ struct HomeView: View {
     HomeView()
         .modelContainer(for: Item.self, inMemory: true)
 }
- 
+
