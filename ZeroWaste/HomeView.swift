@@ -17,7 +17,7 @@ struct HomeView: View {
     
     var body: some View {
         NavigationStack {
-            let nonExpiredSorted = Item.getNonExpiredItems(items)
+            let nonExpiredSorted = Item.getNonExpiredItems(items, isRemovedMode: false)
                 .sorted {
                     (SharedProperties.parseStringToDate(from: $0.expiredDate, to: "yyyy-MM-dd") ?? .distantFuture)
                     <

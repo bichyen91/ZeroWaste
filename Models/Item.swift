@@ -108,23 +108,24 @@ class Item {
         return filterItems
     }
     
-    static func getNonExpiredItems(_ items: [Item], dateFormat: String = "yyyy-MM-dd") -> [Item] {
+    static func getNonExpiredItems(_ items: [Item], isRemovedMode: Bool) -> [Item] {
         let today = Date()
         return items.filter { item in
-            guard let date = SharedProperties.parseStringToDate(from: item.expiredDate, to: dateFormat) else {
+            guard let date = SharedProperties.parseStringToDate(from: item.expiredDate, to: "yyyy-MM-dd") else {
                 return false
             }
-            return date >= today
+            return isRemovedMode ? date < today : date >= today
         }
     }
     
     
-    static func itemValidation(itemName: String, purchaseDate: Date, itemsModel: ModelContext) -> String {
+    static func itemValidation(itemName: String, purchaseDate: Date, itemsModel: ModelContext, isNew: Bool) -> String {
         guard !itemName.isEmpty else {
             return "Item name is required"
         }
         
-        if let _ = existedItem(from: itemsModel, name: itemName, purchaseDate: purchaseDate, dateFormat: "yyyy-MM-dd") {
+        if let _ = existedItem(from: itemsModel, name: itemName, purchaseDate: purchaseDate, dateFormat: "yyyy-MM-dd"),
+           isNew {
             return "Item already exists"
         }
         

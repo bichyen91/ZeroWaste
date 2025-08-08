@@ -45,9 +45,12 @@ struct SearchItemView: View {
                     }
                     .padding(.top)
                 
-                withAnimation(.easeInOut){
+                ZStack {
+                    RoundedCorner(radius: 20, corners: [.bottomLeft, .bottomRight])
+                        .fill(Color.white)
+                    
                     List {
-                        if !hasSearched {
+                        if !hasSearched || (itemName == "" && !searchByDate) {
                             HStack {
                                 Spacer()
                                 Text("Input search criteria... ")
@@ -67,21 +70,27 @@ struct SearchItemView: View {
                         }
                         else {
                             ForEach(itemsSearch, id: \.itemCode) { item in
-                                VStack(alignment: .leading) {
-                                    Text(item.itemName.capitalized)
-                                    Text("Purchased: \(item.purchasedDate)\nExpires: \(item.expiredDate)")
-                                        .font(.subheadline)
-                                        .foregroundColor(.gray)
-                                }
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    selectedItem = item
+                                NavigationLink(
+                                    destination: ItemDetailView(isNew: false, selectedItem: item) {
+                                        refreshID = UUID()
+                                        selectedItem = nil
+                                    }
+                                ){
+                                    VStack(alignment: .leading) {
+                                        Text(item.itemName.capitalized)
+                                        Text("Purchased: \(item.purchasedDate)\nExpires: \(item.expiredDate)")
+                                            .font(.subheadline)
+                                            .foregroundColor(.gray)
+                                    }
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        selectedItem = item
+                                    }
                                 }
                             }
                         }
                     }
                     .listStyle(.plain)
-                    .clipShape(RoundedCorner(radius: 20, corners: [.bottomLeft, .bottomRight]))
                     .scrollContentBackground(.hidden)
                     .padding(.bottom)
                 }
