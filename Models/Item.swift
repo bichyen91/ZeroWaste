@@ -43,21 +43,39 @@ class Item {
     }
     
     static func getItemsByName(from itemsModel: ModelContext, searchName: String) -> [Item]{
-        let searchItems = FetchDescriptor<Item>(
-            predicate: #Predicate<Item> {
-                $0.itemName.localizedStandardContains(searchName)
-            },
+        // Some SwiftData predicate string methods behave inconsistently on device.
+        // Fetch all and filter in memory for reliable results.
+        let descriptor = FetchDescriptor<Item>(
             sortBy: [SortDescriptor(\.purchasedDate, order: .forward)]
         )
         do {
-            let result = try itemsModel.fetch(searchItems)
-            return result
+            let all = try itemsModel.fetch(descriptor)
+            let needle = searchName.trimmingCharacters(in: .whitespacesAndNewlines)
+                .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            guard !needle.isEmpty else { return [] }
+            return all.filter {
+                $0.itemName
+                    .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+                    .contains(needle)
+            }
         } catch {
             return []
         }
     }
     
     static func getItemsByDate(from itemsModel: ModelContext, dateFrom: Date, dateTo: Date) -> [Item]{
+        // Normalize date range to full days in UTC to avoid simulator/device timezone differences
+        let utcCalendar = Calendar(identifier: .gregorian)
+        var calendar = utcCalendar
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let startOfDay = calendar.startOfDay(for: dateFrom)
+        let endOfDay: Date = {
+            if let end = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: dateTo) {
+                return end
+            }
+            return dateTo
+        }()
+        
         let fetchAllItems = FetchDescriptor<Item>(
             sortBy: [SortDescriptor(\.purchasedDate, order: .forward)]
         )
@@ -66,7 +84,7 @@ class Item {
             let items = try itemsModel.fetch(fetchAllItems)
             let filterItems = items.filter { item in
                 if let parseDate = SharedProperties.parseStringToDate(from: item.purchasedDate, to: "yyyy-MM-dd") {
-                    return parseDate >= dateFrom && parseDate <= dateTo
+                    return parseDate >= startOfDay && parseDate <= endOfDay
                 }
                 return false
             }
@@ -97,31 +115,47 @@ class Item {
     }
     
     static func getItemsByNameAndDateRange(from itemsModel: ModelContext, searchName: String, dateFrom: Date, dateTo: Date) -> [Item]{
+        // Normalize date range to full days in UTC to avoid simulator/device timezone differences
+        let utcCalendar = Calendar(identifier: .gregorian)
+        var calendar = utcCalendar
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let startOfDay = calendar.startOfDay(for: dateFrom)
+        let endOfDay: Date = {
+            if let end = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: dateTo) {
+                return end
+            }
+            return dateTo
+        }()
+        
         let itemByName = getItemsByName(from: itemsModel, searchName: searchName)
         
         let filterItems = itemByName.filter { item in
             if let parseDate = SharedProperties.parseStringToDate(from: item.purchasedDate, to: "yyyy-MM-dd") {
-                return parseDate >= dateFrom && parseDate <= dateTo
+                return parseDate >= startOfDay && parseDate <= endOfDay
             }
             return false
         }
         return filterItems
     }
     
-    static func getNonExpiredItems(_ items: [Item], isRemovedMode: Bool) -> [Item] {
+    static func filterItemsByExpiration(_ items: [Item], isExpired: Bool) -> [Item] {
         let today = Date()
         return items.filter { item in
             guard let date = SharedProperties.parseStringToDate(from: item.expiredDate, to: "yyyy-MM-dd") else {
                 return false
             }
-            return isRemovedMode ? date < today : date >= today
+            return isExpired ? date < today : date >= today
         }
     }
     
     
-    static func itemValidation(itemName: String, purchaseDate: Date, itemsModel: ModelContext, isNew: Bool) -> String {
+    static func itemValidation(itemName: String, purchaseDate: Date, expiredDate: Date, itemsModel: ModelContext, isNew: Bool) -> String {
         guard !itemName.isEmpty else {
             return "Item name is required"
+        }
+        
+        guard purchaseDate < expiredDate else {
+            return "Invalid Expired date"
         }
         
         if let _ = existedItem(from: itemsModel, name: itemName, purchaseDate: purchaseDate, dateFormat: "yyyy-MM-dd"),

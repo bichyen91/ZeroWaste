@@ -166,7 +166,7 @@ struct ItemDetailView: View {
                 Task {
                     do{
                         let lowerItemName = itemName.lowercased()
-                        message.errorMessage = Item.itemValidation(itemName: lowerItemName, purchaseDate: purchaseDate, itemsModel: itemsModel, isNew: isNew)
+                        message.errorMessage = Item.itemValidation(itemName: lowerItemName, purchaseDate: purchaseDate, expiredDate: expiredDate, itemsModel: itemsModel, isNew: isNew)
                         
                         if message.errorMessage.isEmpty {
                             if isNew {
@@ -200,7 +200,7 @@ struct ItemDetailView: View {
                             }
                         }
                         else {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                                 message.errorMessage = ""
                             }
                         }

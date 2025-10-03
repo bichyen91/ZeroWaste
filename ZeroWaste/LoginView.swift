@@ -13,7 +13,10 @@ struct LoginView: View {
     @ObservedObject var message = SharedProperties.shared
     @State private var formTop: CGFloat = 0
     @State private var isNavigateToHome = false
-
+    
+    enum Field { case username, password }
+    @FocusState private var focusedField: Field?
+    
     @State private var username = ""
     @State private var password = ""
 
@@ -66,14 +69,20 @@ struct LoginView: View {
             Spacer().frame(height: 50)
 
             TextField("Username", text: $username)
+                .focused($focusedField, equals: .username)
                 .padding()
                 .font(.system(size: 20))
                 .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.gray, lineWidth: 2))
+                .submitLabel(.next)
+                .onSubmit { focusedField = .password }
 
             SecureField("Password", text: $password)
+                .focused($focusedField, equals: .password)
                 .padding()
                 .font(.system(size: 20))
                 .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.gray, lineWidth: 2))
+                .submitLabel(.done)
+                .onSubmit { login() }
 
             Spacer()
 
@@ -90,29 +99,7 @@ struct LoginView: View {
             HStack {
                 Spacer()
                 Button("Login") {
-                    Task {
-                        do {
-                            let lowerUsername = username.lowercased()
-                            message.errorMessage = try User.userValidation(
-                                isNew: false,
-                                username: lowerUsername,
-                                password: password,
-                                modelContext: userModel)
-
-                            if message.errorMessage.isEmpty {
-                                if let user = try User.getUserByUsername(lowerUsername, in: userModel),
-                                   let decrypted = User.decryptPassword(user.password),
-                                   decrypted == password {
-                                    UserSession.shared.currentUser = user
-                                    isNavigateToHome = true
-                                } else {
-                                    message.errorMessage = "Incorrect password"
-                                }
-                            }
-                        } catch {
-                            message.errorMessage = error.localizedDescription
-                        }
-                    }
+                    login()
                 }.zeroWasteStyle(width: 100)
                 Spacer()
                 VStack(alignment: .trailing, spacing: 8) {
@@ -129,6 +116,33 @@ struct LoginView: View {
             }
 
             Spacer().frame(height: 10)
+        }
+    }
+    
+    private func login() {
+        focusedField = nil
+        Task {
+            do {
+                let lowerUsername = username.lowercased()
+                message.errorMessage = try User.userValidation(
+                    isNew: false,
+                    username: lowerUsername,
+                    password: password,
+                    modelContext: userModel)
+
+                if message.errorMessage.isEmpty {
+                    if let user = try User.getUserByUsername(lowerUsername, in: userModel),
+                       let decrypted = User.decryptPassword(user.password),
+                       decrypted == password {
+                        UserSession.shared.currentUser = user
+                        isNavigateToHome = true
+                    } else {
+                        message.errorMessage = "Incorrect password"
+                    }
+                }
+            } catch {
+                message.errorMessage = error.localizedDescription
+            }
         }
     }
 }

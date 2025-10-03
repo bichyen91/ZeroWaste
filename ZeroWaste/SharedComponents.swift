@@ -43,7 +43,7 @@ struct FormAvatarImage: View {
     }
 }
 
-extension Button {
+extension View {
     func zeroWasteStyle(width: CGFloat = 120) -> some View {
         self.frame(width: width, height: 50)
             .font(.system(size: 24))

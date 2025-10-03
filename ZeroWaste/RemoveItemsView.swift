@@ -17,13 +17,17 @@ import SwiftData
 
 struct RemoveItemsView: View {
     @Query var items: [Item]
-    @State private var formTop: CGFloat = 0
-    @State private var refreshID = UUID()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var itemModel
     
+    @State private var formTop: CGFloat = 0 // icon position
+    @State private var refreshID = UUID()
+    
+    @State private var isSelecting = false
+    @State private var selectedItems: Set<String> = []
+    
     var body: some View {
-        let nonExpiredSorted = Item.getNonExpiredItems(items, isRemovedMode: true)
+        let expiredItems = Item.filterItemsByExpiration(items, isExpired: true)
             .sorted {
                 (SharedProperties.parseStringToDate(from: $0.expiredDate, to: "yyyy-MM-dd") ?? .distantFuture)
                 <
@@ -39,38 +43,73 @@ struct RemoveItemsView: View {
                 ZStack {
                     VStack(alignment: .leading, spacing: 10) {
                         
-                        Spacer().frame(height: 40)
+                        Spacer().frame(height: 10)
+                        
+                        if !expiredItems.isEmpty {
+                            HStack {
+                                Button(isSelecting ? "Done" : "Select") {
+                                    withAnimation {
+                                        isSelecting.toggle()
+                                        if !isSelecting {
+                                            selectedItems.removeAll()
+                                        }
+                                    }
+                                }
+                                .font(.headline)
+                                
+                                Spacer ()
+                                
+                                if isSelecting && !selectedItems.isEmpty {
+                                    Button ("Delete") { deleteSelectedItems() }.font(.headline)
+                                }
+                            }
+                        }
+                        
+                        Spacer().frame(height: 10)
                         
                         HStack{
                             List {
-                                if !nonExpiredSorted.isEmpty {
-                                    ForEach(nonExpiredSorted, id: \.itemCode) { item in
-                                        NavigationLink(destination: ItemDetailView(isNew: false, selectedItem: item){
-                                            refreshID = UUID()
-                                        }) {
-                                            VStack(alignment: .leading) {
-                                                Text(item.itemName.capitalized)
-                                                Text("Purchased: \(item.purchasedDate)\nExpires: \(item.expiredDate)")
-                                                    .font(.subheadline)
-                                                    .foregroundColor(.gray)
-                                            }
-                                        }
-                                        .swipeActions {
-                                            Button("Delete", role: .destructive) {
-                                                do {
-                                                    itemModel.delete(item)
-                                                    try itemModel.save()
-                                                    refreshID = UUID()
-                                                } catch {
-                                                    print(error)
+                                if !expiredItems.isEmpty {
+                                    ForEach(expiredItems, id: \.itemCode) { item in
+                                        
+                                        if isSelecting {
+                                            HStack {
+                                                Image(systemName: selectedItems.contains(item.itemCode) ? "checkmark.circle.fill" : "circle")
+                                                    .imageScale(.large)
+                                                VStack(alignment: .leading) {
+                                                    Text(item.itemName.capitalized)
+                                                    Text("Purchased: \(item.purchasedDate)\nExpires: \(item.expiredDate)")
+                                                        .font(.subheadline)
+                                                        .foregroundColor(.gray)
                                                 }
                                             }
+                                            .onTapGesture {
+                                                toggleSelection(for: item.itemCode)
+                                            }
+                                        }
+                                        else {
+                                            NavigationLink(destination: ItemDetailView(isNew: false, selectedItem: item){
+                                                refreshID = UUID()
+                                            }) {
+                                                VStack(alignment: .leading) {
+                                                    Text(item.itemName.capitalized)
+                                                    Text("Purchased: \(item.purchasedDate)\nExpires: \(item.expiredDate)")
+                                                        .font(.subheadline)
+                                                        .foregroundColor(.gray)
+                                                }
+                                            }
+                                            .swipeActions {
+                                                Button("Delete", role: .destructive) {
+                                                    deleteItem(item)
+                                                }
+                                            }
+                                            
                                         }
                                     }
                                 } else {
                                     HStack {
                                         Spacer()
-                                        Text("List is empty")
+                                        Text("No expired items")
                                             .foregroundColor(.gray)
                                         Spacer()
                                     }
@@ -110,20 +149,44 @@ struct RemoveItemsView: View {
         })
         .navigationBarBackButtonHidden()
     }
-
-//    struct RoundedCorner: Shape {
-//        var radius: CGFloat = 20.0
-//        var corners: UIRectCorner = .allCorners
-//
-//        func path(in rect: CGRect) -> Path {
-//            let path = UIBezierPath(
-//                roundedRect: rect,
-//                byRoundingCorners: corners,
-//                cornerRadii: CGSize(width: radius, height: radius)
-//            )
-//            return Path(path.cgPath)
-//        }
-//    }
+    
+    private func toggleSelection(for code: String) {
+        if selectedItems.contains(code) {
+            selectedItems.remove(code)
+        }
+        else {
+            selectedItems.insert(code)
+        }
+    }
+    
+    private func deleteItem(_ item: Item) {
+        do {
+            itemModel.delete(item)
+            try itemModel.save()
+            refreshID = UUID()
+            selectedItems.remove(item.itemCode)
+        }
+        catch {
+            print("catch error deletion!!!")
+        }
+    }
+    
+    private func deleteSelectedItems() {
+        do {
+            for code in selectedItems {
+                if let it = items.first(where: {$0.itemCode == code}) {
+                    itemModel.delete(it)
+                }
+            }
+            try itemModel.save()
+            refreshID = UUID()
+            selectedItems.removeAll()
+        }
+        catch {
+            print("catch error deletion!!!")
+        }
+    }
+    
 }
 
 

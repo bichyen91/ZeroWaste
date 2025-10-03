@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct HomeView: View {
     @Query var items: [Item]
@@ -14,10 +15,12 @@ struct HomeView: View {
     @State private var refreshID = UUID()
     @ObservedObject var message = SharedProperties.shared
     @Environment(\.modelContext) private var itemModel
+    @State private var capturedScanImage: UIImage? = nil
+    @State private var goToScanReceipt = false
     
     var body: some View {
         NavigationStack {
-            let nonExpiredSorted = Item.getNonExpiredItems(items, isRemovedMode: false)
+            let nonExpiredItems = Item.filterItemsByExpiration(items, isExpired: false)
                 .sorted {
                     (SharedProperties.parseStringToDate(from: $0.expiredDate, to: "yyyy-MM-dd") ?? .distantFuture)
                     <
@@ -53,13 +56,20 @@ struct HomeView: View {
                     }
                     
                     HStack(spacing: 15) {
-                        featureButton("Scan", image: "scan", destination: EmptyView())
+                        featureActionButton("Scan", image: "scan") {
+                            capturedScanImage = nil
+                            goToScanReceipt = true
+                        }
                         featureButton("Input", image: "input", destination: ItemDetailView(isNew: true) {
                             refreshID = UUID()
                         })
                         featureButton("Update", image: "Update", destination: SearchItemView(refreshID: $refreshID))
                         featureButton("Remove", image: "Remove", destination: RemoveItemsView())
                     }
+                    NavigationLink(destination: ScanReceiptView(initialImage: capturedScanImage), isActive: $goToScanReceipt) {
+                        EmptyView()
+                    }
+                    .hidden()
                 }
                 .padding(.horizontal)
                 .padding(.top)
@@ -67,44 +77,49 @@ struct HomeView: View {
                 Spacer(minLength: 10)
                 
                 // Scrollable list
-                List {
-                    if !nonExpiredSorted.isEmpty {
-                        ForEach(nonExpiredSorted, id: \.itemCode) { item in
-                            NavigationLink(destination: ItemDetailView(isNew: false, selectedItem: item){
-                                refreshID = UUID()
-                            }) {
-                                VStack(alignment: .leading) {
-                                    Text(item.itemName.capitalized)
-                                    Text("Purchased: \(item.purchasedDate)\nExpires: \(item.expiredDate)")
-                                        .font(.subheadline)
-                                        .foregroundColor(.gray)
+                ZStack {
+                    RoundedCorner(radius: 20)
+                        .fill(Color.white)
+                    
+                    List {
+                        if !nonExpiredItems.isEmpty {
+                            ForEach(nonExpiredItems, id: \.itemCode) { item in
+                                NavigationLink(destination: ItemDetailView(isNew: false, selectedItem: item){
+                                    refreshID = UUID()
+                                }) {
+                                    VStack(alignment: .leading) {
+                                        Text(item.itemName.capitalized)
+                                        Text("Purchased: \(item.purchasedDate)\nExpires: \(item.expiredDate)")
+                                            .font(.subheadline)
+                                            .foregroundColor(.gray)
+                                    }
                                 }
-                            }
-                            .swipeActions {
-                                Button("Delete", role: .destructive) {
-                                    do {
-                                        itemModel.delete(item)
-                                        try itemModel.save()
-                                        refreshID = UUID()
-                                    } catch {
-                                        print(error)
+                                .swipeActions {
+                                    Button("Delete", role: .destructive) {
+                                        do {
+                                            itemModel.delete(item)
+                                            try itemModel.save()
+                                            refreshID = UUID()
+                                        } catch {
+                                            print(error)
+                                        }
                                     }
                                 }
                             }
-                        }
-                    } else {
-                        HStack {
-                            Spacer()
-                            Text("List is empty")
-                                .foregroundColor(.gray)
-                            Spacer()
+                        } else {
+                            HStack {
+                                Spacer()
+                                Text("List is empty")
+                                    .foregroundColor(.gray)
+                                Spacer()
+                            }
                         }
                     }
-                }
-                .listStyle(.plain)
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal)
+                    .listStyle(.plain)
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal)
+                }.padding()
             }
             .background(
                 Image("Background")
@@ -120,6 +135,25 @@ struct HomeView: View {
     private func featureButton<Destination: View>(_ label: String, image: String, destination: Destination) -> some View {
         VStack(spacing: 10) {
             NavigationLink(destination: destination) {
+                Image(image)
+                    .resizable()
+                    .frame(width: 80, height: 80)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color.gray, lineWidth: 3))
+                    .background(
+                        Circle()
+                            .fill(Color.white)
+                            .shadow(color: .black.opacity(0.4), radius: 4, x: 0, y: 2)
+                    )
+            }
+            Text(label)
+                .fontWeight(.semibold)
+        }
+    }
+
+    private func featureActionButton(_ label: String, image: String, action: @escaping () -> Void) -> some View {
+        VStack(spacing: 10) {
+            Button(action: action) {
                 Image(image)
                     .resizable()
                     .frame(width: 80, height: 80)
