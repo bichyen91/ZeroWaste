@@ -1,0 +1,11 @@
+# Local secrets
+Models/Secrets.plist
+
+# Xcode user data
+**/xcuserdata/
+
+# Derived data and build artifacts (if present outside default path)
+DerivedData/
+build/
+
+
