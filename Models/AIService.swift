@@ -21,11 +21,12 @@ class AIService {
     }()
     
     func predictExpiredDate(itemName: String, purchaseDate: Date, completion: @escaping (Date?) -> Void){
-        let purchaseDateString = SharedProperties.parseDateToString(purchaseDate, to: "yyyy_MM-dd")
+        let purchaseDateString = SharedProperties.parseDateToString(purchaseDate, to: "yyyy-MM-dd")
         let prompt = "Given \(itemName) and the purchase date \(purchaseDateString), what is the general expiration date in yyyy-MM-dd format? Only return the expiration date."
         
         //Connect Gemini API, return nil if URL invalid
-        guard let apiURL = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(apiKey)") else {
+        // guard let apiURL = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(apiKey)") else {
+        guard let apiURL = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=\(apiKey)") else {
             completion(nil)
             return
         }
@@ -54,13 +55,15 @@ class AIService {
             return
         }
         
-        URLSession.shared.dataTask(with: request) {data, _, error in
+        URLSession.shared.dataTask(with: request) {data, response, error in
             //Guard if no network error or no data receive
             guard error == nil, let data = data else {
-                print("Error")
+                if let err = error { print("Gemini request error:", err.localizedDescription) }
+                if let http = response as? HTTPURLResponse { print("Gemini status:", http.statusCode) }
                 completion(nil)
                 return
             }
+            if let http = response as? HTTPURLResponse { print("Gemini status:", http.statusCode) }
             
             var predictedDate: Date?
             //Gemini response structure: data['candidates'][0]['content']['parts'][0]['text']
@@ -71,12 +74,15 @@ class AIService {
                let text = parts.first?["text"] as? String,
                let range = text.range(of: #"\d{4}-\d{2}-\d{2}"#, options: .regularExpression){
                 print("Prompt: ", prompt)
-                print("Gemini Output:", text)
+                print("Gemini Output:", text, "\n")
                 let dateString = String(text[range])
                 predictedDate = SharedProperties.parseStringToDate(from: dateString, to: "yyyy-MM-dd")
                 
             }
             else {
+                if let raw = String(data: data, encoding: .utf8) {
+                    print("Gemini raw response:", raw)
+                }
                 predictedDate = Calendar.current.date(byAdding: .day, value: 7, to: purchaseDate)
             }
             

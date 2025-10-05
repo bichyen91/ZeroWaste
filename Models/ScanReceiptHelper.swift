@@ -11,6 +11,15 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 
 struct ScanReceiptHelper {
+    // Common non-item keywords to exclude anywhere in text
+    private static let skipKeywords: [String] = [
+        "total","sales total","subtotal","tax","change","cash","amount","discount","coupon",
+        "fee","tip","payment","card","auth","refund","return","balance","approved",
+        "visa","mastercard","amex","debit","tender","credit","cashback","due",
+        "qty","price","user","option","station","ticket","description","grocery","store",
+        "receipt","order","number","trans","terminal","date","time","tel","phone","address",
+        "invoice","batch","clerk","cashier","pos","merchant","thank","visit","welcome"
+    ]
     // MARK: - Image Enhance (helps OCR on dim/glare receipts)
     static func enhance(image: UIImage) -> UIImage? {
         guard let ci = CIImage(image: image) else { return nil }
@@ -93,10 +102,14 @@ struct ScanReceiptHelper {
     }
     
     static func normalizeToLocalMidday(_ date: Date) -> Date {
-        var cal = Calendar.current
-        cal.timeZone = TimeZone.current
-        let components = cal.dateComponents([.year, .month, .day], from: date)
-        return cal.date(from: DateComponents(year: components.year, month: components.month, day: components.day, hour: 12)) ?? date
+        // The parsed date is created at 00:00 in UTC (see SharedProperties.parseStringToDate).
+        // Extract the calendar day in UTC, then create a local-time date at 12:00 to avoid day shifts.
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let comps = utcCal.dateComponents([.year, .month, .day], from: date)
+        var localCal = Calendar.current
+        localCal.timeZone = TimeZone.current
+        return localCal.date(from: DateComponents(year: comps.year, month: comps.month, day: comps.day, hour: 12)) ?? date
     }
     
     // MARK: - Item Section Heuristics
@@ -104,15 +117,36 @@ struct ScanReceiptHelper {
         var start = 0
         var end = lines.count - 1
         
+        // 1) Prefer an explicit header like "Item", "Description", or a line that mentions qty/price
         for (i, line) in lines.enumerated() {
-            if isItemLine(line) { start = i; break }
+            let l = line.lowercased()
+            if l.contains("description") || (l.contains("item") && (l.contains("qty") || l.contains("price"))) {
+                start = min(lines.count - 1, i + 1)
+                break
+            }
         }
+        
+        // 2) If not found, fall back to the first line that looks like an item row by price/qty
+        if start == 0 {
+            for (i, line) in lines.enumerated() {
+                if isItemLine(line) { start = i; break }
+            }
+        }
+        
+        // 3) If still not found, choose the first plausible item-name line
+        if start == 0 {
+            for (i, line) in lines.enumerated() {
+                if isItemNameCandidate(line) { start = i; break }
+            }
+        }
+        
+        // 4) Find end at summary/payment area
         for (i, line) in lines.enumerated() {
             let l = line.lowercased()
             if l.contains("subtotal") || l.contains("tax") || l.contains("total") ||
                 l.contains("tender") || l.contains("change") || l.contains("visa") ||
                 l.contains("mastercard") || l.contains("debit") || l.contains("cash") ||
-                l.contains("payment") || l.contains("amount due") {
+                l.contains("payment") || l.contains("amount due") || l.contains("items purchased") || l.contains("number of items") {
                 end = max(start, i - 1); break
             }
         }
@@ -139,6 +173,8 @@ struct ScanReceiptHelper {
         items.append(contentsOf: extractInlinePriceItems(from: section))
         items.append(contentsOf: extractPriceOnlyItems(from: section))
         items.append(contentsOf: extractMultiLineItems(from: section))
+        // Fallback: take left textual segment before first number when price isn't at end
+        items.append(contentsOf: extractLeftTextItems(from: section))
         
         let cleaned = items
             .map { cleanItemName($0) }
@@ -156,12 +192,64 @@ struct ScanReceiptHelper {
         return result
     }
 
-    // MARK: - Line-by-line item extraction (no filtering)
-    // Return all non-empty lines in order, as-is (after upstream normalization).
+    // MARK: - Line-by-line item extraction (letters-only)
+    // Return non-empty lines in order with ONLY alphabet letters and words (>=2 chars).
     static func extractItemsLineByLine(lines: [String]) -> [String] {
         return lines
+            .map { lettersOnlyWords($0) } // letters-only words
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+            .filter { !containsSkipKeyword(in: $0) }
+    }
+
+    // MARK: - Item names only (letters-only, deduped, order preserved)
+    static func extractItemNamesOnly(lines: [String]) -> [String] {
+        if lines.isEmpty { return [] }
+        let (start, end) = findItemSection(in: lines)
+        let s = max(0, start)
+        let e = min(lines.count - 1, max(start, end))
+        guard s <= e else { return [] }
+        let section = Array(lines[s...e])
+        if section.isEmpty { return [] }
+        let raw = extractItemsFromSection(lines: section, startIndex: 0, endIndex: section.count - 1)
+        var seen = Set<String>()
+        var result: [String] = []
+        for item in raw {
+            let letters = lettersOnlyWords(item).trimmingCharacters(in: .whitespacesAndNewlines)
+            if letters.isEmpty { continue }
+            let key = letters.lowercased()
+            if !seen.contains(key) {
+                seen.insert(key)
+                result.append(letters)
+            }
+        }
+        return result
+    }
+
+    // Keep only alphabetic letters and spaces; drop digits/symbols; remove 1-letter words
+    private static func lettersOnlyWords(_ s: String) -> String {
+        if s.isEmpty { return s }
+        let kept = s.unicodeScalars.map { scalar -> Character? in
+            if CharacterSet.letters.contains(scalar) { return Character(UnicodeScalar(scalar)) }
+            if CharacterSet.whitespaces.contains(scalar) { return " " }
+            return nil
+        }
+        var result = String(kept.compactMap { $0 })
+        // collapse multiple spaces
+        if let regex = try? NSRegularExpression(pattern: "\\s{2,}", options: []) {
+            let range = NSRange(location: 0, length: result.utf16.count)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: " ")
+        }
+        // remove single-letter words and common unit tokens
+        let tokens = result.split(separator: " ")
+        let bannedUnits: Set<String> = ["lb","oz","kg","g","ea","ct","pk"]
+        let filtered = tokens.compactMap { tok -> String? in
+            let t = String(tok)
+            if t.count <= 1 { return nil }
+            if bannedUnits.contains(t.lowercased()) { return nil }
+            return t
+        }
+        return filtered.joined(separator: " ")
     }
     
     private static func extractInlinePriceItems(from lines: [String]) -> [String] {
@@ -205,20 +293,31 @@ struct ScanReceiptHelper {
         }
         return items
     }
+
+    // Fallback for lines like "Bun Gao Xao  4.00  4.00  9710  1" where numbers trail the name
+    private static func extractLeftTextItems(from lines: [String]) -> [String] {
+        var results: [String] = []
+        for raw in lines {
+            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard t.range(of: #"[A-Za-z]"#, options: .regularExpression) != nil,
+                  t.range(of: #"\d"#, options: .regularExpression) != nil else { continue }
+            if let m = t.range(of: #"^([A-Za-z\s\-\(\)]+)\s+.*$"#, options: .regularExpression) {
+                let left = String(t[m]).trimmingCharacters(in: .whitespaces)
+                // extract the first capturing group
+                if let g = left.range(of: #"^[A-Za-z\s\-\(\)]+"#, options: .regularExpression) {
+                    let name = String(left[g]).trimmingCharacters(in: .whitespaces)
+                    if isItemNameCandidate(name) { results.append(name) }
+                }
+            }
+        }
+        return results
+    }
     
     private static func isItemNameCandidate(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return false }
         let lower = trimmed.lowercased()
-        let skipWords = [
-            "total","sales total","subtotal","tax","change","cash","amount","discount","coupon",
-            "fee","tip","payment","card","auth","refund","return","balance","approved","appr",
-            "visa","mastercard","amex","debit","tender","credit","cashback","due",
-            // headers and non-item context
-            "qty","price","qty price","user","option","station","ticket","description",
-            "grocery","store","visa"
-        ]
-        if skipWords.contains(where: { lower.contains($0) }) { return false }
+        if containsSkipKeyword(in: lower) { return false }
         // obvious labels with colon
         if lower.contains("user:") || lower.contains("station:") || lower.contains("tender:") || lower.contains("description:") { return false }
         // phone numbers
@@ -233,6 +332,10 @@ struct ScanReceiptHelper {
         let ratio = Double(letters) / Double(max(1, trimmed.count))
         if ratio < 0.30 { return false }
         return true
+    }
+
+    private static func containsSkipKeyword(in text: String) -> Bool {
+        return skipKeywords.contains { kw in text.contains(kw) }
     }
     
     private static func cleanItemName(_ s: String) -> String {
@@ -269,5 +372,3 @@ struct ScanReceiptHelper {
         return t
     }
 }
-
-
