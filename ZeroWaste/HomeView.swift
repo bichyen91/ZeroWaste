@@ -20,7 +20,9 @@ struct HomeView: View {
     
     var body: some View {
         NavigationStack {
-            let nonExpiredItems = Item.filterItemsByExpiration(items, isExpired: false)
+            let currentUsername = UserSession.shared.currentUser?.username ?? ""
+            let userItems = items.filter { $0.username == currentUsername }
+            let nonExpiredItems = Item.filterItemsByExpiration(userItems, isExpired: false)
                 .sorted {
                     (SharedProperties.parseStringToDate(from: $0.expiredDate, to: "yyyy-MM-dd") ?? .distantFuture)
                     <

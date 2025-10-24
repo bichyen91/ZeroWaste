@@ -27,7 +27,9 @@ struct RemoveItemsView: View {
     @State private var selectedItems: Set<String> = []
     
     var body: some View {
-        let expiredItems = Item.filterItemsByExpiration(items, isExpired: true)
+        let username = UserSession.shared.currentUser?.username ?? ""
+        let userItems = items.filter { $0.username == username }
+        let expiredItems = Item.filterItemsByExpiration(userItems, isExpired: true)
             .sorted {
                 (SharedProperties.parseStringToDate(from: $0.expiredDate, to: "yyyy-MM-dd") ?? .distantFuture)
                 <

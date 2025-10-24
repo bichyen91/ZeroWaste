@@ -172,14 +172,18 @@ extension SearchItemView {
         hasSearched = true
         // Ensure UI updates happen on main queue (defensive for real device behavior)
         DispatchQueue.main.async {
+            let username = UserSession.shared.currentUser?.username ?? ""
             if !itemName.isEmpty && !searchByDate {
                 itemsSearch = Item.getItemsByName(from: itemsModel, searchName: itemName)
+                    .filter { $0.username == username }
             }
             else if itemName.isEmpty && searchByDate {
                 itemsSearch = Item.getItemsByDate(from: itemsModel, dateFrom: dateFrom, dateTo: dateTo)
+                    .filter { $0.username == username }
             }
             else if !itemName.isEmpty && searchByDate {
                 itemsSearch = Item.getItemsByNameAndDateRange(from: itemsModel, searchName: itemName, dateFrom: dateFrom, dateTo: dateTo)
+                    .filter { $0.username == username }
             } else {
                 itemsSearch = []
             }
