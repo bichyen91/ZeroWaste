@@ -117,10 +117,10 @@ struct ScanReceiptView: View {
                     DatePicker("", selection: $purchaseDate, displayedComponents: .date)
                         .datePickerStyle(.automatic)
                         .labelsHidden()
-                    Button(action: { showDateCamera = true }) {
-                        Image(systemName: "camera.badge.clock").imageScale(.large)
-                    }
-                    .accessibilityLabel("Scan date only")
+                    // Button(action: { showDateCamera = true }) {
+                    //     Image(systemName: "camera.badge.clock").imageScale(.large)
+                    // }
+                    // .accessibilityLabel("Scan date only")
                 }
             }
         }
@@ -258,8 +258,8 @@ struct ScanReceiptView: View {
             purchaseDate = ScanReceiptHelper.normalizeToLocalMidday(d)
         }
         
-        var items = ScanReceiptHelper.extractItemNamesOnly(lines: allTextLines)
-        if items.isEmpty { items = ScanReceiptHelper.extractItemsLineByLine(lines: allTextLines) }
+        // Extract data line-by-line with filtering (letters-only, skip keywords/phone/zip)
+        var items = ScanReceiptHelper.extractItemsLineByLine(lines: allTextLines)
         print("Final items found: \(items)")
         lines = items.map { ScannedLine(itemName: $0, expiredDateText: "", predictedExpired: nil) }
         await predictAll()
@@ -478,7 +478,6 @@ fileprivate class CustomCameraViewController: UIViewController, AVCapturePhotoCa
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         previewLayer.frame = view.bounds
-        cropOverlay.frame = view.bounds
     }
     
     private func setupSession() {
@@ -499,10 +498,7 @@ fileprivate class CustomCameraViewController: UIViewController, AVCapturePhotoCa
     }
     
     private func setupUI() {
-        cropOverlay.isUserInteractionEnabled = true
-        cropOverlay.message = overlayMessage
-        cropOverlay.cropIgnoresPassThrough = true
-        view.addSubview(cropOverlay)
+        // Removed live crop frame overlay
         
         captureButton.backgroundColor = .white
         captureButton.layer.cornerRadius = 32
@@ -549,8 +545,9 @@ fileprivate class CustomCameraViewController: UIViewController, AVCapturePhotoCa
         guard error == nil, let data = photo.fileDataRepresentation(), let img = UIImage(data: data) else {
             onFinish?(nil); return
         }
-        let cropped = cropImage(img, with: cropOverlay, in: view.bounds.size)
-        showConfirm(for: cropped)
+        // Use full image (live crop frame removed)
+        let normalized = fixOrientation(img)
+        showConfirm(for: normalized)
     }
     
     private func showConfirm(for image: UIImage) {
@@ -562,7 +559,6 @@ fileprivate class CustomCameraViewController: UIViewController, AVCapturePhotoCa
         view.addSubview(preview)
         captureButton.isHidden = true
         liveRetakeButton.isHidden = true
-        cropOverlay.isHidden = true
         
         let useBtn = UIButton(type: .system)
         useBtn.setTitle("Use", for: .normal)
@@ -593,7 +589,6 @@ fileprivate class CustomCameraViewController: UIViewController, AVCapturePhotoCa
         for v in view.subviews where v is UIImageView { v.removeFromSuperview() }
         confirmUseButtonRef = nil
         confirmRetakeButtonRef = nil
-        cropOverlay.isHidden = false
         captureButton.isHidden = false
         liveRetakeButton.isHidden = false
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in

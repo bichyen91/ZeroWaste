@@ -43,20 +43,16 @@ class Item {
     }
     
     static func getItemsByName(from itemsModel: ModelContext, searchName: String) -> [Item]{
-        // Some SwiftData predicate string methods behave inconsistently on device.
-        // Fetch all and filter in memory for reliable results.
+        // Fetch all and filter in memory using a locale-independent normalizer for reliability
         let descriptor = FetchDescriptor<Item>(
             sortBy: [SortDescriptor(\.purchasedDate, order: .forward)]
         )
         do {
             let all = try itemsModel.fetch(descriptor)
-            let needle = searchName.trimmingCharacters(in: .whitespacesAndNewlines)
-                .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            let needle = normalizeForSearch(searchName)
             guard !needle.isEmpty else { return [] }
             return all.filter {
-                $0.itemName
-                    .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-                    .contains(needle)
+                normalizeForSearch($0.itemName).contains(needle)
             }
         } catch {
             return []
@@ -165,4 +161,13 @@ class Item {
         
         return ""
     }
+}
+
+// MARK: - Search normalization helpers
+private func normalizeForSearch(_ s: String) -> String {
+    let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+    // Remove diacritics in a locale-independent way and lowercase
+    let posix = Locale(identifier: "en_US_POSIX")
+    let folded = trimmed.folding(options: [.diacriticInsensitive, .widthInsensitive], locale: posix)
+    return folded.lowercased()
 }

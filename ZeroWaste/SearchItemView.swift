@@ -125,6 +125,8 @@ struct SearchItemView: View {
                     .foregroundColor(.gray)
                 
                 TextField("Item name", text: $itemName)
+                    .submitLabel(.search)
+                    .onSubmit { performSearch() }
                     .padding().frame(height: 40)
                     .font(.system(size: 16))
                     .overlay {
@@ -155,21 +157,31 @@ struct SearchItemView: View {
                 
                 HStack{
                     Spacer()
-                    Button("Search") {
-                        hasSearched = true
-                        if !itemName.isEmpty && !searchByDate {
-                            itemsSearch = Item.getItemsByName(from: itemsModel, searchName: itemName)
-                        }
-                        else if itemName.isEmpty && searchByDate {
-                            itemsSearch = Item.getItemsByDate(from: itemsModel, dateFrom: dateFrom, dateTo: dateTo)
-                        }
-                        else if !itemName.isEmpty && searchByDate {
-                            itemsSearch = Item.getItemsByNameAndDateRange(from: itemsModel, searchName: itemName, dateFrom: dateFrom, dateTo: dateTo)
-                        }
-                    }
+                    Button("Search") { performSearch() }
                     .zeroWasteStyle(width: 170)
                     Spacer()
                 }
+            }
+        }
+    }
+}
+
+// MARK: - Search actions
+extension SearchItemView {
+    fileprivate func performSearch() {
+        hasSearched = true
+        // Ensure UI updates happen on main queue (defensive for real device behavior)
+        DispatchQueue.main.async {
+            if !itemName.isEmpty && !searchByDate {
+                itemsSearch = Item.getItemsByName(from: itemsModel, searchName: itemName)
+            }
+            else if itemName.isEmpty && searchByDate {
+                itemsSearch = Item.getItemsByDate(from: itemsModel, dateFrom: dateFrom, dateTo: dateTo)
+            }
+            else if !itemName.isEmpty && searchByDate {
+                itemsSearch = Item.getItemsByNameAndDateRange(from: itemsModel, searchName: itemName, dateFrom: dateFrom, dateTo: dateTo)
+            } else {
+                itemsSearch = []
             }
         }
     }

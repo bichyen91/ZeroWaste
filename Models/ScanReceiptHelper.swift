@@ -11,6 +11,55 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 
 struct ScanReceiptHelper {
+    // MARK: - Store detection
+    enum StoreKind { case walmart, wholeFoods, tanA, other }
+
+    static func detectStoreKind(lines: [String]) -> StoreKind {
+        let joined = lines.joined(separator: " ").lowercased()
+        if joined.contains("walmart") { return .walmart }
+        if joined.contains("whole foods") || joined.contains("wholefoods") { return .wholeFoods }
+        if joined.contains("tan a grocery") || joined.contains("tan a grocery store") { return .tanA }
+        return .other
+    }
+
+    // Slice lines into the likely item section according to store-specific rules
+    static func sliceLinesForItems(lines: [String]) -> [String] {
+        let kind = detectStoreKind(lines: lines)
+        var start = 0
+        var end = lines.count - 1
+
+        switch kind {
+        case .wholeFoods:
+            // start after address (city, state, zip) – find first line containing pattern like ", ST 12345"
+            if let idx = lines.firstIndex(where: { $0.range(of: #",\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?\b"#, options: .regularExpression) != nil }) {
+                start = min(lines.count - 1, idx + 1)
+            } else if let anchor = findStartAnchorIndex(in: lines) { start = min(lines.count - 1, anchor + 1) }
+            // end at Subtotal (keep date after end for purchase date logic elsewhere)
+            if let idx = lines.firstIndex(where: { $0.lowercased().contains("subtotal") }) { end = max(start, idx - 1) }
+        case .walmart:
+            // start after barcode: pick first line that looks like a long numeric-only with length >= 12, or the line of "# ITEMS SOLD"
+            if let codeIdx = lines.firstIndex(where: { $0.range(of: #"\b\d{10,}\b"#, options: .regularExpression) != nil }) {
+                start = min(lines.count - 1, codeIdx + 1)
+            }
+            if let itemsIdx = lines.firstIndex(where: { $0.lowercased().contains("items sold") }) {
+                start = max(start, min(lines.count - 1, itemsIdx + 2)) // skip header and blank
+            }
+            if let subIdx = lines.firstIndex(where: { $0.lowercased().contains("subtotal") }) { end = max(start, subIdx - 1) }
+        case .tanA:
+            if let dIdx = lines.firstIndex(where: { $0.lowercased().contains("description") }) { start = min(lines.count - 1, dIdx + 1) }
+            if let subIdx = lines.firstIndex(where: { $0.lowercased().contains("subtotal") }) { end = max(start, subIdx - 1) }
+        case .other:
+            // start after address or phone
+            if let anchor = findStartAnchorIndex(in: lines) { start = min(lines.count - 1, anchor + 1) }
+            // end at subtotal/total
+            if let countIdx = lines.firstIndex(where: { $0.lowercased().contains("item count") }) { end = max(start, countIdx - 1) }
+            else if let subIdx = lines.firstIndex(where: { $0.lowercased().contains("subtotal") }) { end = max(start, subIdx - 1) }
+            else if let totIdx = lines.firstIndex(where: { $0.lowercased().contains("total") }) { end = max(start, totIdx - 1) }
+        }
+
+        if start > end { return [] }
+        return Array(lines[start...end])
+    }
     // Common non-item keywords to exclude anywhere in text
     private static let skipKeywords: [String] = [
         "total","sales total","subtotal","tax","change","cash","amount","discount","coupon",
@@ -18,7 +67,31 @@ struct ScanReceiptHelper {
         "visa","mastercard","amex","debit","tender","credit","cashback","due",
         "qty","price","user","option","station","ticket","description","grocery","store",
         "receipt","order","number","trans","terminal","date","time","tel","phone","address",
-        "invoice","batch","clerk","cashier","pos","merchant","thank","visit","welcome"
+        "street","st","ave","avenue","blvd","boulevard","road","rd","drive","dr",
+        "invoice","batch","clerk","cashier","pos","merchant","thank","visit","welcome",
+        "container","tare","tare weight","reg","saving","savings"
+    ]
+
+    // Extra patterns that require word-boundary matching to avoid over-filtering
+    private static let skipRegexes: [String] = [
+        #"\brep\b"#,
+        #"\bmember(s)?\b"#,
+        #"\bcashier\b"#,
+        #"\buser\b"#,
+        #"\bstation\b"#,
+        #"\bbalance\b"#,
+        #"\bamount\b"#,
+        #"\bvisa\b"#,
+        #"\bid\b"#,
+        #"\bapproved\b"#,
+        #"\bpurchase\b"#,
+        #"\bchange\b"#,
+        #"\bsavings?\b"#,
+        #"(?:wholesale|whosesale)"#,
+        #"\bthank(?:\s+you)?\b"#,
+        #"\btran\b"#,
+        #"\btax(?:es)?\b"#,
+        #"\breg\b"#
     ]
     // MARK: - Image Enhance (helps OCR on dim/glare receipts)
     static func enhance(image: UIImage) -> UIImage? {
@@ -41,20 +114,29 @@ struct ScanReceiptHelper {
     
     // MARK: - Purchase Date Extraction
     static func extractPurchaseDate(lines: [String], full: String) -> Date? {
-        let keyWords = ["purchase", "purchased", "date", "datetime", "receipt", "txn", "order", "time"]
         let dateRegexes = datePatterns()
-        
+        // Determine first footer marker position (subtotal/total/item count), but avoid header line
+        var cutoff = lines.count
         for (i, raw) in lines.enumerated() {
-            let l = raw.lowercased()
-            guard keyWords.contains(where: { l.contains($0) }) else { continue }
-            let window = Array(lines[max(0, i-1)...min(lines.count-1, i+2)]).joined(separator: " ")
-            if let s = firstRegexMatch(in: window, patterns: dateRegexes),
-               let d = parseAnyDate(s) {
-                return d
-            }
+            let lower = raw.lowercased()
+            let looksLikeHeader = (lower.contains("qty") && lower.contains("price") && lower.contains("total")) ||
+                                   (lower.contains("qty") || lower.contains("price"))
+            if lower.contains("subtotal") { cutoff = i; break }
+            if lower.contains("item count") { cutoff = i; break }
+            if lower.contains("total") && !looksLikeHeader { cutoff = i; break }
         }
-        if let s = firstRegexMatch(in: full, patterns: dateRegexes),
-           let d = parseAnyDate(s) {
+        let before = Array(lines.prefix(cutoff)).joined(separator: " ")
+        let after = Array(lines.suffix(max(0, lines.count - cutoff))).joined(separator: " ")
+        // 1) Prefer a date found before the footer
+        if let s = firstRegexMatch(in: before, patterns: dateRegexes), let d = parseAnyDate(s) {
+            return d
+        }
+        // 2) Otherwise, accept a date after the footer
+        if let s = firstRegexMatch(in: after, patterns: dateRegexes), let d = parseAnyDate(s) {
+            return d
+        }
+        // 3) Fallback: scan full text
+        if let s = firstRegexMatch(in: full, patterns: dateRegexes), let d = parseAnyDate(s) {
             return d
         }
         return nil
@@ -75,6 +157,29 @@ struct ScanReceiptHelper {
         for p in patterns {
             if let r = text.range(of: p, options: .regularExpression) {
                 return String(text[r])
+            }
+        }
+        return nil
+    }
+
+    // Find the index of the first line that looks like an address/phone/website or the description header.
+    // We will start item extraction AFTER this line so we skip store headers while allowing dates before this area.
+    static func findStartAnchorIndex(in lines: [String]) -> Int? {
+        let urlRegex = #"https?://|www\."#
+        let phoneRegex1 = #"\(\d{3}\)\s*\d{3}-\d{4}"#
+        let phoneRegex2 = #"\b\d{3}[-\s]\d{3}[-\s]\d{4}\b"#
+        let zipRegex = #"\b[A-Z]{2}\s*\d{5}(?:-\d{4})?\b"#
+        for (i, raw) in lines.enumerated() {
+            let lower = raw.lowercased()
+            if lower.contains("description") { return i }
+            if raw.range(of: urlRegex, options: .regularExpression) != nil { return i }
+            if raw.range(of: phoneRegex1, options: .regularExpression) != nil { return i }
+            if raw.range(of: phoneRegex2, options: .regularExpression) != nil { return i }
+            if raw.range(of: zipRegex, options: .regularExpression) != nil { return i }
+            // Basic street indicators: contains a number and a street token
+            if raw.range(of: #"\b\d+\b"#, options: .regularExpression) != nil {
+                let hasStreetToken = ["street","st","ave","avenue","blvd","boulevard","road","rd","drive","dr"].contains { lower.contains($0) }
+                if hasStreetToken { return i }
             }
         }
         return nil
@@ -195,11 +300,22 @@ struct ScanReceiptHelper {
     // MARK: - Line-by-line item extraction (letters-only)
     // Return non-empty lines in order with ONLY alphabet letters and words (>=2 chars).
     static func extractItemsLineByLine(lines: [String]) -> [String] {
-        return lines
-            .map { lettersOnlyWords($0) } // letters-only words
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .filter { !containsSkipKeyword(in: $0) }
+        // Use store-aware slicing rules first
+        let slice = sliceLinesForItems(lines: lines)
+        return slice.enumerated().compactMap { (_, raw) in
+            let lower = raw.lowercased()
+            if containsSkipKeyword(in: lower) { return nil }
+            if raw.contains("#") { return nil }
+            // phone number formats
+            if raw.range(of: #"\(\d{3}\)\s*\d{3}-\d{4}"#, options: .regularExpression) != nil { return nil }
+            if raw.range(of: #"\b\d{3}[-\s]\d{3}[-\s]\d{4}\b"#, options: .regularExpression) != nil { return nil }
+            // zip code formats
+            if raw.range(of: #"\b\d{5}(?:-\d{4})?\b"#, options: .regularExpression) != nil { return nil }
+            // keep only letters and multi-char words
+            let letters = lettersOnlyWords(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            if letters.isEmpty { return nil }
+            return letters
+        }
     }
 
     // MARK: - Item names only (letters-only, deduped, order preserved)
@@ -226,7 +342,7 @@ struct ScanReceiptHelper {
         return result
     }
 
-    // Keep only alphabetic letters and spaces; drop digits/symbols; remove 1-letter words
+    // Keep only alphabetic letters and spaces; drop digits/symbols; remove <=2-letter words
     private static func lettersOnlyWords(_ s: String) -> String {
         if s.isEmpty { return s }
         let kept = s.unicodeScalars.map { scalar -> Character? in
@@ -240,12 +356,12 @@ struct ScanReceiptHelper {
             let range = NSRange(location: 0, length: result.utf16.count)
             result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: " ")
         }
-        // remove single-letter words and common unit tokens
+        // remove <=2-letter words and common unit tokens
         let tokens = result.split(separator: " ")
         let bannedUnits: Set<String> = ["lb","oz","kg","g","ea","ct","pk"]
         let filtered = tokens.compactMap { tok -> String? in
             let t = String(tok)
-            if t.count <= 1 { return nil }
+            if t.count <= 2 { return nil }
             if bannedUnits.contains(t.lowercased()) { return nil }
             return t
         }
@@ -335,7 +451,11 @@ struct ScanReceiptHelper {
     }
 
     private static func containsSkipKeyword(in text: String) -> Bool {
-        return skipKeywords.contains { kw in text.contains(kw) }
+        if skipKeywords.contains(where: { text.contains($0) }) { return true }
+        for regex in skipRegexes {
+            if text.range(of: regex, options: .regularExpression) != nil { return true }
+        }
+        return false
     }
     
     private static func cleanItemName(_ s: String) -> String {
