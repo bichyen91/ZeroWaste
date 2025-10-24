@@ -65,11 +65,11 @@ struct ScanReceiptHelper {
         "total","sales total","subtotal","tax","change","cash","amount","discount","coupon",
         "fee","tip","payment","card","auth","refund","return","balance","approved",
         "visa","mastercard","amex","debit","tender","credit","cashback","due",
-        "qty","price","user","option","station","ticket","description","grocery","store",
+        "qty","oty","price","user","option","station","ticket","description","grocery","store",
         "receipt","order","number","trans","terminal","date","time","tel","phone","address",
-        "street","st","ave","avenue","blvd","boulevard","road","rd","drive","dr",
+        "street","ave","avenue","blvd","boulevard","road","rd","drive",
         "invoice","batch","clerk","cashier","pos","merchant","thank","visit","welcome",
-        "container","tare","tare weight","reg","saving","savings"
+        "container","tare","tare weight","reg","saving","savings", "each"
     ]
 
     // Extra patterns that require word-boundary matching to avoid over-filtering
@@ -168,7 +168,8 @@ struct ScanReceiptHelper {
         let urlRegex = #"https?://|www\."#
         let phoneRegex1 = #"\(\d{3}\)\s*\d{3}-\d{4}"#
         let phoneRegex2 = #"\b\d{3}[-\s]\d{3}[-\s]\d{4}\b"#
-        let zipRegex = #"\b[A-Z]{2}\s*\d{5}(?:-\d{4})?\b"#
+        // Require a typical address line like "City, ST 12345"
+        let zipRegex = #",\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?\b"#
         for (i, raw) in lines.enumerated() {
             let lower = raw.lowercased()
             if lower.contains("description") { return i }
@@ -178,7 +179,7 @@ struct ScanReceiptHelper {
             if raw.range(of: zipRegex, options: .regularExpression) != nil { return i }
             // Basic street indicators: contains a number and a street token
             if raw.range(of: #"\b\d+\b"#, options: .regularExpression) != nil {
-                let hasStreetToken = ["street","st","ave","avenue","blvd","boulevard","road","rd","drive","dr"].contains { lower.contains($0) }
+                let hasStreetToken = ["street","ave","avenue","blvd","boulevard","road","rd","drive"].contains { lower.contains($0) }
                 if hasStreetToken { return i }
             }
         }
@@ -216,86 +217,6 @@ struct ScanReceiptHelper {
         localCal.timeZone = TimeZone.current
         return localCal.date(from: DateComponents(year: comps.year, month: comps.month, day: comps.day, hour: 12)) ?? date
     }
-    
-    // MARK: - Item Section Heuristics
-    static func findItemSection(in lines: [String]) -> (start: Int, end: Int) {
-        var start = 0
-        var end = lines.count - 1
-        
-        // 1) Prefer an explicit header like "Item", "Description", or a line that mentions qty/price
-        for (i, line) in lines.enumerated() {
-            let l = line.lowercased()
-            if l.contains("description") || (l.contains("item") && (l.contains("qty") || l.contains("price"))) {
-                start = min(lines.count - 1, i + 1)
-                break
-            }
-        }
-        
-        // 2) If not found, fall back to the first line that looks like an item row by price/qty
-        if start == 0 {
-            for (i, line) in lines.enumerated() {
-                if isItemLine(line) { start = i; break }
-            }
-        }
-        
-        // 3) If still not found, choose the first plausible item-name line
-        if start == 0 {
-            for (i, line) in lines.enumerated() {
-                if isItemNameCandidate(line) { start = i; break }
-            }
-        }
-        
-        // 4) Find end at summary/payment area
-        for (i, line) in lines.enumerated() {
-            let l = line.lowercased()
-            if l.contains("subtotal") || l.contains("tax") || l.contains("total") ||
-                l.contains("tender") || l.contains("change") || l.contains("visa") ||
-                l.contains("mastercard") || l.contains("debit") || l.contains("cash") ||
-                l.contains("payment") || l.contains("amount due") || l.contains("items purchased") || l.contains("number of items") {
-                end = max(start, i - 1); break
-            }
-        }
-        return (max(0, start), min(lines.count - 1, end))
-    }
-    
-    private static func isItemLine(_ line: String) -> Bool {
-        let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t.isEmpty { return false }
-        if t.range(of: #"(?:\$)?\d{1,4}(?:[.,]\d{2})$"#, options: .regularExpression) != nil { return true }
-        if t.range(of: #"^\d+\s+"#, options: .regularExpression) != nil { return true }
-        if t.range(of: #"\s[xX]\s*\d+"#, options: .regularExpression) != nil { return true }
-        if t.range(of: #"\s@\s*\$?\d"#, options: .regularExpression) != nil { return true }
-        if t.range(of: #"\d+\.?\d*\s*(lb|oz|kg|g|ea|each|ct|pk)"#, options: .regularExpression) != nil { return true }
-        return false
-    }
-    
-    // MARK: - Item Extraction (name only)
-    static func extractItemsFromSection(lines: [String], startIndex: Int, endIndex: Int) -> [String] {
-        var items: [String] = []
-        if lines.isEmpty { return items }
-        let section = Array(lines[startIndex...endIndex])
-        
-        items.append(contentsOf: extractInlinePriceItems(from: section))
-        items.append(contentsOf: extractPriceOnlyItems(from: section))
-        items.append(contentsOf: extractMultiLineItems(from: section))
-        // Fallback: take left textual segment before first number when price isn't at end
-        items.append(contentsOf: extractLeftTextItems(from: section))
-        
-        let cleaned = items
-            .map { cleanItemName($0) }
-            .filter { isAllowedItemName($0) }
-        
-        var seen = Set<String>()
-        var result: [String] = []
-        for s in cleaned {
-            let key = s.lowercased()
-            if !seen.contains(key) {
-                seen.insert(key)
-                result.append(s)
-            }
-        }
-        return result
-    }
 
     // MARK: - Line-by-line item extraction (letters-only)
     // Return non-empty lines in order with ONLY alphabet letters and words (>=2 chars).
@@ -309,37 +230,14 @@ struct ScanReceiptHelper {
             // phone number formats
             if raw.range(of: #"\(\d{3}\)\s*\d{3}-\d{4}"#, options: .regularExpression) != nil { return nil }
             if raw.range(of: #"\b\d{3}[-\s]\d{3}[-\s]\d{4}\b"#, options: .regularExpression) != nil { return nil }
-            // zip code formats
-            if raw.range(of: #"\b\d{5}(?:-\d{4})?\b"#, options: .regularExpression) != nil { return nil }
+        // Address lines (City, ST ZIP). Do not filter lines that only contain 5-digit numbers (item codes)
+        let cityStateZip = #"[A-Za-z][A-Za-z\s]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?\b"#
+        if raw.range(of: cityStateZip, options: .regularExpression) != nil { return nil }
             // keep only letters and multi-char words
             let letters = lettersOnlyWords(raw).trimmingCharacters(in: .whitespacesAndNewlines)
             if letters.isEmpty { return nil }
             return letters
         }
-    }
-
-    // MARK: - Item names only (letters-only, deduped, order preserved)
-    static func extractItemNamesOnly(lines: [String]) -> [String] {
-        if lines.isEmpty { return [] }
-        let (start, end) = findItemSection(in: lines)
-        let s = max(0, start)
-        let e = min(lines.count - 1, max(start, end))
-        guard s <= e else { return [] }
-        let section = Array(lines[s...e])
-        if section.isEmpty { return [] }
-        let raw = extractItemsFromSection(lines: section, startIndex: 0, endIndex: section.count - 1)
-        var seen = Set<String>()
-        var result: [String] = []
-        for item in raw {
-            let letters = lettersOnlyWords(item).trimmingCharacters(in: .whitespacesAndNewlines)
-            if letters.isEmpty { continue }
-            let key = letters.lowercased()
-            if !seen.contains(key) {
-                seen.insert(key)
-                result.append(letters)
-            }
-        }
-        return result
     }
 
     // Keep only alphabetic letters and spaces; drop digits/symbols; remove <=2-letter words
@@ -368,88 +266,6 @@ struct ScanReceiptHelper {
         return filtered.joined(separator: " ")
     }
     
-    private static func extractInlinePriceItems(from lines: [String]) -> [String] {
-        var items: [String] = []
-        let priceRegex = #"(?:\$)?\d{1,4}(?:[.,]\d{2})\s*$"#
-        for line in lines {
-            let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let r = t.range(of: priceRegex, options: .regularExpression) {
-                let left = String(t[..<r.lowerBound]).trimmingCharacters(in: .whitespaces)
-                if isItemNameCandidate(left) { items.append(left) }
-            }
-        }
-        return items
-    }
-    
-    private static func extractPriceOnlyItems(from lines: [String]) -> [String] {
-        var items: [String] = []
-        let priceOnly = #"^\s*(?:\$)?\d{1,4}(?:[.,]\d{2})\s*$"#
-        for (i, raw) in lines.enumerated() {
-            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard t.range(of: priceOnly, options: .regularExpression) != nil else { continue }
-            let lo = max(0, i-2), hi = max(0, i-1)
-            for j in stride(from: hi, through: lo, by: -1) {
-                let cand = lines[j].trimmingCharacters(in: .whitespacesAndNewlines)
-                if isItemNameCandidate(cand) { items.append(cand); break }
-            }
-        }
-        return items
-    }
-    
-    private static func extractMultiLineItems(from lines: [String]) -> [String] {
-        var items: [String] = []
-        let priceRegex = #"(?:\$)?\d{1,4}(?:[.,]\d{2})\s*$"#
-        for i in 0..<lines.count {
-            let t = lines[i].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard t.range(of: priceRegex, options: .regularExpression) != nil else { continue }
-            for j in stride(from: max(0, i-3), through: max(0, i-1), by: -1) {
-                let cand = lines[j].trimmingCharacters(in: .whitespacesAndNewlines)
-                if isItemNameCandidate(cand) { items.append(cand); break }
-            }
-        }
-        return items
-    }
-
-    // Fallback for lines like "Bun Gao Xao  4.00  4.00  9710  1" where numbers trail the name
-    private static func extractLeftTextItems(from lines: [String]) -> [String] {
-        var results: [String] = []
-        for raw in lines {
-            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard t.range(of: #"[A-Za-z]"#, options: .regularExpression) != nil,
-                  t.range(of: #"\d"#, options: .regularExpression) != nil else { continue }
-            if let m = t.range(of: #"^([A-Za-z\s\-\(\)]+)\s+.*$"#, options: .regularExpression) {
-                let left = String(t[m]).trimmingCharacters(in: .whitespaces)
-                // extract the first capturing group
-                if let g = left.range(of: #"^[A-Za-z\s\-\(\)]+"#, options: .regularExpression) {
-                    let name = String(left[g]).trimmingCharacters(in: .whitespaces)
-                    if isItemNameCandidate(name) { results.append(name) }
-                }
-            }
-        }
-        return results
-    }
-    
-    private static func isItemNameCandidate(_ line: String) -> Bool {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return false }
-        let lower = trimmed.lowercased()
-        if containsSkipKeyword(in: lower) { return false }
-        // obvious labels with colon
-        if lower.contains("user:") || lower.contains("station:") || lower.contains("tender:") || lower.contains("description:") { return false }
-        // phone numbers
-        if trimmed.range(of: #"\(\d{3}\)\s*\d{3}-\d{4}"#, options: .regularExpression) != nil { return false }
-        if trimmed.range(of: #"\b\d{3}[-\s]\d{3}[-\s]\d{4}\b"#, options: .regularExpression) != nil { return false }
-        // address-like patterns City, ST 12345
-        if trimmed.range(of: #",\s*[A-Z]{2}\s*\d{5}\b"#, options: .regularExpression) != nil { return false }
-        if trimmed.range(of: #"\b\d{4,8}\b"#, options: .regularExpression) != nil,
-           trimmed.range(of: #"[A-Za-z]"#, options: .regularExpression) == nil { return false }
-        let letters = trimmed.filter { $0.isLetter }.count
-        if letters < 2 { return false }
-        let ratio = Double(letters) / Double(max(1, trimmed.count))
-        if ratio < 0.30 { return false }
-        return true
-    }
-
     private static func containsSkipKeyword(in text: String) -> Bool {
         if skipKeywords.contains(where: { text.contains($0) }) { return true }
         for regex in skipRegexes {
