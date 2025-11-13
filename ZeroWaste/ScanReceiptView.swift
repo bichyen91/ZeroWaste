@@ -294,6 +294,7 @@ struct ScanReceiptView: View {
     }
     
     private func saveItems() {
+        var savedItems: [Item] = []
         for entry in lines {
             guard !entry.itemName.isEmpty, let exp = entry.predictedExpired else { continue }
             let newItem = Item(
@@ -305,8 +306,14 @@ struct ScanReceiptView: View {
                 username: UserSession.shared.currentUser?.username ?? ""
             )
             modelContext.insert(newItem)
+            savedItems.append(newItem)
         }
-        do { try modelContext.save() } catch { print(error) }
+        do {
+            try modelContext.save()
+            if let user = UserSession.shared.currentUser {
+                savedItems.forEach { NotificationManager.shared.scheduleForItem($0, user: user) }
+            }
+        } catch { print(error) }
         dismiss()
     }
 }
@@ -476,5 +483,4 @@ fileprivate func fixOrientation(_ img: UIImage) -> UIImage {
     UIGraphicsEndImageContext()
     return normalized ?? img
 }
-
 

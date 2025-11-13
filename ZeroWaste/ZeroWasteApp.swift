@@ -18,6 +18,7 @@ struct ZeroWasteApp: App {
     }
     
     init(){
+        Task { _ = await NotificationManager.shared.requestAuthorization() }
         print(URL.applicationDirectory.path(percentEncoded: false))
     }
 }

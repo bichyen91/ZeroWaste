@@ -145,6 +145,12 @@ struct UserSettingView: View {
                                         user.alert_day = alertDay
                                         user.alert_time = SharedProperties.parseDateToString(alertTime, to: "HH:mm")
                                         try userModel.save()
+                                        let username = user.username
+                                        let descriptor = FetchDescriptor<Item>(
+                                            predicate: #Predicate { $0.username == username }
+                                        )
+                                        let userItems = try userModel.fetch(descriptor)
+                                        NotificationManager.shared.rescheduleAll(items: userItems, user: user)
                                         message.errorMessage = "Updated successfully!"
                                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0){
                                             message.errorMessage = ""
@@ -157,6 +163,9 @@ struct UserSettingView: View {
                             .zeroWasteStyle()
 
                             Button("Logout") {
+                                if let user = UserSession.shared.currentUser {
+                                    NotificationManager.shared.rescheduleAll(items: [], user: user)
+                                }
                                 UserSession.shared.logout()
                                 message.errorMessage = ""
                                 isNavigateToLogin = true
@@ -179,6 +188,7 @@ struct UserSettingView: View {
                             Task {
                                 do {
                                     if let user = UserSession.shared.currentUser {
+                                        NotificationManager.shared.rescheduleAll(items: [], user: user)
                                         try userModel.delete(user)
                                         message.errorMessage = ""
                                         UserSession.shared.logout()

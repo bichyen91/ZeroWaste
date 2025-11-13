@@ -135,12 +135,24 @@ class Item {
     }
     
     static func filterItemsByExpiration(_ items: [Item], isExpired: Bool) -> [Item] {
-        let today = Date()
+        // Compare by calendar day in LOCAL timezone to avoid UTC midnight shifts.
+        let localCal = Calendar.current
+        let todayMidday: Date = {
+            let comps = localCal.dateComponents([.year, .month, .day], from: Date())
+            return localCal.date(from: DateComponents(year: comps.year, month: comps.month, day: comps.day, hour: 12)) ?? Date()
+        }()
+        
         return items.filter { item in
-            guard let date = SharedProperties.parseStringToDate(from: item.expiredDate, to: "yyyy-MM-dd") else {
+            guard let parsed = SharedProperties.parseStringToDate(from: item.expiredDate, to: "yyyy-MM-dd") else {
                 return false
             }
-            return isExpired ? date < today : date >= today
+            // The parsed date is created at 00:00 in UTC; normalize to local midday for fair comparison.
+            var utcCal = Calendar(identifier: .gregorian)
+            utcCal.timeZone = TimeZone(secondsFromGMT: 0)!
+            let dayComps = utcCal.dateComponents([.year, .month, .day], from: parsed)
+            let localDate = localCal.date(from: DateComponents(year: dayComps.year, month: dayComps.month, day: dayComps.day, hour: 12)) ?? parsed
+            
+            return isExpired ? localDate < todayMidday : localDate >= todayMidday
         }
     }
     

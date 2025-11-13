@@ -32,11 +32,20 @@ struct ItemDetailView: View {
         self.selectedItem = selectedItem
         _itemCode = State(initialValue: selectedItem?.itemCode ?? "")
         _itemName = State(initialValue: selectedItem?.itemName.capitalized ?? "")
-        _purchaseDate = State(initialValue: selectedItem?.purchasedDate != nil ?
-                              SharedProperties.parseStringToDate(from: selectedItem!.purchasedDate, to: "yyyy-MM-dd") ?? Date() : Date())
-        _expiredDate = State(initialValue: selectedItem?.expiredDate != nil ?
-                             SharedProperties.parseStringToDate(from: selectedItem!.expiredDate, to: "yyyy-MM-dd") ?? Calendar.current.date(byAdding: .day, value: 7, to: .now)!
-                             : Calendar.current.date(byAdding: .day, value: 7, to: .now)!)
+        _purchaseDate = State(initialValue: {
+            if let s = selectedItem?.purchasedDate,
+               let d = SharedProperties.parseStringToDate(from: s, to: "yyyy-MM-dd") {
+                return normalizeToLocalMidday(d)
+            }
+            return Date()
+        }())
+        _expiredDate = State(initialValue: {
+            if let s = selectedItem?.expiredDate,
+               let d = SharedProperties.parseStringToDate(from: s, to: "yyyy-MM-dd") {
+                return normalizeToLocalMidday(d)
+            }
+            return Calendar.current.date(byAdding: .day, value: 7, to: .now)!
+        }())
     }
     
     var body: some View {
@@ -105,7 +114,7 @@ struct ItemDetailView: View {
                         debounceTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
                             AIService.shared.predictExpiredDate(itemName: newName, purchaseDate: purchaseDate) { predictedDate in
                                 if let date = predictedDate {
-                                    expiredDate = date
+                                    expiredDate = normalizeToLocalMidday(date)
                                 }
                             }
                         }
@@ -123,7 +132,7 @@ struct ItemDetailView: View {
                         if !itemName.isEmpty {
                             AIService.shared.predictExpiredDate(itemName: itemName, purchaseDate: newDate) { predictedDate in
                                 if let date = predictedDate {
-                                    expiredDate = date
+                                    expiredDate = normalizeToLocalMidday(date)
                                 }
                             }
                         }
@@ -169,6 +178,7 @@ struct ItemDetailView: View {
                         message.errorMessage = Item.itemValidation(itemName: lowerItemName, purchaseDate: purchaseDate, expiredDate: expiredDate, itemsModel: itemsModel, isNew: isNew)
                         
                         if message.errorMessage.isEmpty {
+                            var persistedItem: Item?
                             if isNew {
                                 let newItem = try Item(
                                     itemCode: Item.getNextItemCode(from: itemsModel),
@@ -179,14 +189,19 @@ struct ItemDetailView: View {
                                     username: UserSession.shared.currentUser!.username)
                                 
                                 itemsModel.insert(newItem)
+                                persistedItem = newItem
                             }
                             else if let updateItem = selectedItem {
                                 updateItem.itemName = lowerItemName
                                 updateItem.purchasedDate = SharedProperties.parseDateToString(purchaseDate, to: "yyyy-MM-dd")
                                 updateItem.expiredDate = SharedProperties.parseDateToString(expiredDate, to: "yyyy-MM-dd")
+                                persistedItem = updateItem
                             }
                             
                             try itemsModel.save()
+                            if let user = UserSession.shared.currentUser, let item = persistedItem {
+                                NotificationManager.shared.scheduleForItem(item, user: user)
+                            }
                             message.errorMessage = isNew ? "Item added successfully!!!" : "Item updated successfully!!!"
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                                 message.errorMessage = ""
@@ -232,4 +247,14 @@ struct ItemDetailView: View {
 #Preview {
     ItemDetailView(isNew: true)
         .modelContainer(for: Item.self, inMemory: true)
+}
+
+// MARK: - Date normalization helper (avoid off-by-one due to UTC parsing)
+private func normalizeToLocalMidday(_ date: Date) -> Date {
+    var utcCal = Calendar(identifier: .gregorian)
+    utcCal.timeZone = TimeZone(secondsFromGMT: 0)!
+    let comps = utcCal.dateComponents([.year, .month, .day], from: date)
+    var localCal = Calendar.current
+    localCal.timeZone = TimeZone.current
+    return localCal.date(from: DateComponents(year: comps.year, month: comps.month, day: comps.day, hour: 12)) ?? date
 }

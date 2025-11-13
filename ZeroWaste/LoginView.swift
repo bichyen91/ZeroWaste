@@ -134,6 +134,12 @@ struct LoginView: View {
                     if let user = try User.getUserByUsername(lowerUsername, in: userModel),
                        let decrypted = User.decryptPassword(user.password),
                        decrypted == password {
+                        let username = user.username
+                        let descriptor = FetchDescriptor<Item>(
+                            predicate: #Predicate { $0.username == username }
+                        )
+                        let userItems = try userModel.fetch(descriptor)
+                        NotificationManager.shared.rescheduleAll(items: userItems, user: user)
                         UserSession.shared.currentUser = user
                         isNavigateToHome = true
                     } else {

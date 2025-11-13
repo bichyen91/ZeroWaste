@@ -163,8 +163,10 @@ struct RemoveItemsView: View {
     
     private func deleteItem(_ item: Item) {
         do {
+            let code = item.itemCode
             itemModel.delete(item)
             try itemModel.save()
+            NotificationManager.shared.cancelForItemCode(code)
             refreshID = UUID()
             selectedItems.remove(item.itemCode)
         }
@@ -175,12 +177,15 @@ struct RemoveItemsView: View {
     
     private func deleteSelectedItems() {
         do {
+            var codesToCancel: [String] = []
             for code in selectedItems {
                 if let it = items.first(where: {$0.itemCode == code}) {
                     itemModel.delete(it)
+                    codesToCancel.append(code)
                 }
             }
             try itemModel.save()
+            codesToCancel.forEach { NotificationManager.shared.cancelForItemCode($0) }
             refreshID = UUID()
             selectedItems.removeAll()
         }

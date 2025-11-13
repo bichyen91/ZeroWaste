@@ -91,7 +91,7 @@ struct HomeView: View {
                                 }) {
                                     VStack(alignment: .leading) {
                                         Text(item.itemName.capitalized)
-                                        Text("Purchased: \(item.purchasedDate)\nExpires: \(item.expiredDate)")
+                                        Text("Purchased: \(localDisplay(from: item.purchasedDate))\nExpires: \(localDisplay(from: item.expiredDate))")
                                             .font(.subheadline)
                                             .foregroundColor(.gray)
                                     }
@@ -99,8 +99,10 @@ struct HomeView: View {
                                 .swipeActions {
                                     Button("Delete", role: .destructive) {
                                         do {
+                                            let code = item.itemCode
                                             itemModel.delete(item)
                                             try itemModel.save()
+                                            NotificationManager.shared.cancelForItemCode(code)
                                             refreshID = UUID()
                                         } catch {
                                             print(error)
@@ -178,3 +180,23 @@ struct HomeView: View {
         .modelContainer(for: Item.self, inMemory: true)
 }
 
+// MARK: - Local date display helper
+private func localDisplay(from iso: String) -> String {
+    guard let parsedUTC = SharedProperties.parseStringToDate(from: iso, to: "yyyy-MM-dd") else {
+        return iso
+    }
+    // Convert parsed UTC date to local calendar day at noon to avoid off-by-one
+    var utcCal = Calendar(identifier: .gregorian)
+    utcCal.timeZone = TimeZone(secondsFromGMT: 0)!
+    let comps = utcCal.dateComponents([.year, .month, .day], from: parsedUTC)
+    var localCal = Calendar.current
+    localCal.timeZone = TimeZone.current
+    let localMidday = localCal.date(from: DateComponents(year: comps.year, month: comps.month, day: comps.day, hour: 12)) ?? parsedUTC
+    
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.string(from: localMidday)
+}
