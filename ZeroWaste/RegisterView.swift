@@ -80,7 +80,7 @@ struct RegisterView: View {
                 HStack {
                     Spacer()
                     Text(message.errorMessage)
-                        .foregroundColor(.red)
+                        .foregroundColor(message.isError ? .red : .blue)
                         .multilineTextAlignment(.center)
                     Spacer()
                 }
@@ -106,6 +106,7 @@ struct RegisterView: View {
                                 username: lowerUsername,
                                 password: password,
                                 modelContext: userModel)
+                            message.isError = !message.errorMessage.isEmpty
 
                             if message.errorMessage.isEmpty {
                                 let encryptedPassword = try User.encryptPassword(password)
@@ -113,6 +114,7 @@ struct RegisterView: View {
                                 userModel.insert(newUser)
                                 try userModel.save()
                                 message.errorMessage = "Registered successfully!!!"
+                                message.isError = false
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                                     message.errorMessage = ""
                                     dismiss()
@@ -120,6 +122,7 @@ struct RegisterView: View {
                             }
                         } catch {
                             message.errorMessage = error.localizedDescription
+                            message.isError = true
                         }
                     }
                 }.zeroWasteStyle()
@@ -133,12 +136,14 @@ struct RegisterView: View {
                                 username: lowerUsername,
                                 password: password,
                                 modelContext: userModel)
+                            message.isError = !message.errorMessage.isEmpty
 
                             if message.errorMessage.isEmpty {
                                 if let user = try User.getUserByUsername(lowerUsername, in: userModel) {
                                     user.password = try User.encryptPassword(password)
                                     try userModel.save()
                                     message.errorMessage = "Password updated successfully!"
+                                    message.isError = false
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                                         message.errorMessage = ""
                                         dismiss()
@@ -147,6 +152,7 @@ struct RegisterView: View {
                             }
                         } catch {
                             message.errorMessage = error.localizedDescription
+                            message.isError = true
                         }
                     }
                 }.zeroWasteStyle(width: 230)

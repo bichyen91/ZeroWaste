@@ -90,7 +90,7 @@ struct LoginView: View {
                 HStack {
                     Spacer()
                     Text(message.errorMessage)
-                        .foregroundColor(.red)
+                        .foregroundColor(message.isError ? .red : .blue)
                         .multilineTextAlignment(.center)
                     Spacer()
                 }
@@ -129,6 +129,7 @@ struct LoginView: View {
                     username: lowerUsername,
                     password: password,
                     modelContext: userModel)
+                message.isError = !message.errorMessage.isEmpty
 
                 if message.errorMessage.isEmpty {
                     if let user = try User.getUserByUsername(lowerUsername, in: userModel),
@@ -144,10 +145,12 @@ struct LoginView: View {
                         isNavigateToHome = true
                     } else {
                         message.errorMessage = "Incorrect password"
+                        message.isError = true
                     }
                 }
             } catch {
                 message.errorMessage = error.localizedDescription
+                message.isError = true
             }
         }
     }

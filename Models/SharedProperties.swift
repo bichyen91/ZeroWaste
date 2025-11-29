@@ -12,6 +12,7 @@ class SharedProperties: ObservableObject {
     static let shared = SharedProperties()
     
     @Published var errorMessage: String = ""
+    @Published var isError: Bool = true
     
     private init() {}
     
@@ -32,6 +33,25 @@ class SharedProperties: ObservableObject {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = formatForm
+        return formatter.string(from: date)
+    }
+
+    // MARK: - Local-time helpers (for time-of-day fields like HH:mm)
+    static func parseLocalTime(_ s: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "HH:mm"
+        return formatter.date(from: s)
+    }
+    
+    static func formatLocalTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "HH:mm"
         return formatter.string(from: date)
     }
 }

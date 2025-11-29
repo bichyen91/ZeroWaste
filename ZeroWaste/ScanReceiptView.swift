@@ -74,7 +74,7 @@ struct ScanReceiptView: View {
             FormAvatarImage(imageName: "scan", formTop: formTop)
             
             if isProcessing {
-                ProgressView("Scanning…")
+                ProgressView("Updating expirations…")
                     .padding()
                     .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemBackground)))
                     .shadow(radius: 10)

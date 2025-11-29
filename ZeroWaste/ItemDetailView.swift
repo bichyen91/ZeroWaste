@@ -155,7 +155,7 @@ struct ItemDetailView: View {
                 HStack {
                     Spacer()
                     Text(message.errorMessage)
-                        .foregroundColor(.red)
+                        .foregroundColor(message.isError ? .red : .blue)
                         .multilineTextAlignment(.center)
                     Spacer()
                 }
@@ -176,6 +176,7 @@ struct ItemDetailView: View {
                     do{
                         let lowerItemName = itemName.lowercased()
                         message.errorMessage = Item.itemValidation(itemName: lowerItemName, purchaseDate: purchaseDate, expiredDate: expiredDate, itemsModel: itemsModel, isNew: isNew)
+                        message.isError = !message.errorMessage.isEmpty
                         
                         if message.errorMessage.isEmpty {
                             var persistedItem: Item?
@@ -203,6 +204,7 @@ struct ItemDetailView: View {
                                 NotificationManager.shared.scheduleForItem(item, user: user)
                             }
                             message.errorMessage = isNew ? "Item added successfully!!!" : "Item updated successfully!!!"
+                            message.isError = false
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                                 message.errorMessage = ""
                                 if isNew {

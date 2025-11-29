@@ -23,6 +23,7 @@ struct UserSettingView: View {
     @State private var password = ""
     @State private var alertDay = 3
     @State private var alertTime = Date()
+    @State private var showDeleteConfirm = false
 
     var body: some View {
         ZStack {
@@ -141,9 +142,20 @@ struct UserSettingView: View {
                                 guard let user = userSession.currentUser else { return }
                                 Task {
                                     do {
+                                        let trimmed = password.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        guard !trimmed.isEmpty else {
+                                            message.errorMessage = "Password is required"
+                                            message.isError = true
+                                            return
+                                        }
+                                        if trimmed.count < User.requiredLength {
+                                            message.errorMessage = "Password must be at least \(User.requiredLength) characters long"
+                                            message.isError = true
+                                            return
+                                        }
                                         user.password = try User.encryptPassword(password)
                                         user.alert_day = alertDay
-                                        user.alert_time = SharedProperties.parseDateToString(alertTime, to: "HH:mm")
+                                        user.alert_time = SharedProperties.formatLocalTime(alertTime)
                                         try userModel.save()
                                         let username = user.username
                                         let descriptor = FetchDescriptor<Item>(
@@ -152,11 +164,13 @@ struct UserSettingView: View {
                                         let userItems = try userModel.fetch(descriptor)
                                         NotificationManager.shared.rescheduleAll(items: userItems, user: user)
                                         message.errorMessage = "Updated successfully!"
+                                        message.isError = false
                                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0){
                                             message.errorMessage = ""
                                         }
                                     } catch {
                                         message.errorMessage = error.localizedDescription
+                                        message.isError = true
                                     }
                                 }
                             }
@@ -178,27 +192,13 @@ struct UserSettingView: View {
                             Spacer()
                             if !message.errorMessage.isEmpty {
                                 Text(message.errorMessage)
-                                    .foregroundColor(.red)
+                                    .foregroundColor(message.isError ? .red : .blue)
                                     .multilineTextAlignment(.center)
                             }
                             Spacer()
                         }
                         
-                        Button("Delete my account") {
-                            Task {
-                                do {
-                                    if let user = UserSession.shared.currentUser {
-                                        NotificationManager.shared.rescheduleAll(items: [], user: user)
-                                        try userModel.delete(user)
-                                        message.errorMessage = ""
-                                        UserSession.shared.logout()
-                                        isNavigateToLogin = true
-                                    }
-                                } catch {
-                                    message.errorMessage = error.localizedDescription
-                                }
-                            }
-                        }
+                        Button("Delete my account") { showDeleteConfirm = true }
                         .frame(maxWidth: .infinity, alignment: .center)
                         .foregroundColor(.gray)
                     }
@@ -222,12 +222,41 @@ struct UserSettingView: View {
                 if let user = userSession.currentUser{
                     password = User.decryptPassword(user.password) ?? ""
                     alertDay = user.alert_day
-                    if let parsedTime = SharedProperties.parseStringToDate(from: user.alert_time, to: "HH:mm"){
-                        alertTime = parsedTime
-                    }
+                    if let parsedTime = SharedProperties.parseLocalTime(user.alert_time) { alertTime = parsedTime }
                 }
             }
             FormAvatarImage(imageName: "Usersetting", formTop: formTop)
+        }
+        .alert("Delete Account?", isPresented: $showDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task {
+                    guard let user = UserSession.shared.currentUser else { return }
+                    do {
+                        // Fetch and delete all items for this user
+                        let username = user.username
+                        let fetch = FetchDescriptor<Item>(predicate: #Predicate { $0.username == username })
+                        let userItems = try userModel.fetch(fetch)
+                        // Cancel any pending notifications for these items
+                        userItems.forEach { NotificationManager.shared.cancelForItemCode($0.itemCode) }
+                        for it in userItems { userModel.delete(it) }
+                        try userModel.save()
+                        
+                        // Delete the user
+                        try userModel.delete(user)
+                        try userModel.save()
+                        
+                        UserSession.shared.logout()
+                        isNavigateToLogin = true
+                        
+                    } catch {
+                        message.errorMessage = error.localizedDescription
+                        message.isError = true
+                    }
+                }
+            }
+        } message: {
+            Text("Deleting your account will also permanently remove all your items.")
         }
         .background(
             Image("Background")

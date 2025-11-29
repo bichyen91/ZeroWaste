@@ -9,13 +9,24 @@ import SwiftUI
 
 struct ZeroWasteHeader: View {
     var onBack: () -> Void
+    var label: String = "RETURN TO HOME"
     
     var body: some View {
         HStack {
             Button(action: onBack) {
-                Image("ZeroWasteIconTitle")
-                    .resizable()
-                    .frame(width: 130, height: 100)
+                VStack(spacing: 2) {
+                    Image("ZeroWasteIconTitle")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 78) // image height within the 100 total
+                    Text(label)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .minimumScaleFactor(0.1)
+                        .allowsTightening(true)
+                        .lineLimit(1)
+                }
+                .frame(width: 130, height: 100, alignment: .center)
             }
             Spacer()
         }
