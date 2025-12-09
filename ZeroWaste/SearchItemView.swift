@@ -22,6 +22,7 @@ struct SearchItemView: View {
     @State private var itemName = ""
     @State private var dateFrom = Calendar.current.date(byAdding: .day, value: -7, to: .now)!
     @State private var dateTo = Date()
+    @FocusState private var isNameFieldFocused: Bool
     
     var body: some View {
         ZStack{
@@ -126,6 +127,7 @@ struct SearchItemView: View {
                 
                 TextField("Item name", text: $itemName)
                     .submitLabel(.search)
+                    .focused($isNameFieldFocused)
                     .onSubmit { performSearch() }
                     .padding().frame(height: 40)
                     .font(.system(size: 16))
@@ -170,6 +172,7 @@ struct SearchItemView: View {
 extension SearchItemView {
     fileprivate func performSearch() {
         hasSearched = true
+        isNameFieldFocused = false
         // Ensure UI updates happen on main queue (defensive for real device behavior)
         DispatchQueue.main.async {
             let username = UserSession.shared.currentUser?.username ?? ""
