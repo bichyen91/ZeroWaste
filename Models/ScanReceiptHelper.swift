@@ -37,12 +37,22 @@ struct ScanReceiptHelper {
             // end at Subtotal (keep date after end for purchase date logic elsewhere)
             if let idx = lines.firstIndex(where: { $0.lowercased().contains("subtotal") }) { end = max(start, idx - 1) }
         case .walmart:
-            // start after barcode: pick first line that looks like a long numeric-only with length >= 12, or the line of "# ITEMS SOLD"
-            if let codeIdx = lines.firstIndex(where: { $0.range(of: #"\b\d{10,}\b"#, options: .regularExpression) != nil }) {
-                start = min(lines.count - 1, codeIdx + 1)
-            }
+            // Prefer explicit anchors so we do not drop the first item line (happened when the first long-number line was the item barcode).
             if let itemsIdx = lines.firstIndex(where: { $0.lowercased().contains("items sold") }) {
-                start = max(start, min(lines.count - 1, itemsIdx + 2)) // skip header and blank
+                start = min(lines.count - 1, itemsIdx + 1) // move to the TC#/barcode block
+            }
+            if let tcIdx = lines.firstIndex(where: { $0.lowercased().contains("tc#") }) {
+                start = max(start, min(lines.count - 1, tcIdx + 1))
+            }
+            // If the next line is a pure barcode (digits only), skip it once to land on the first product line.
+            if start < lines.count,
+               lines[start].trimmingCharacters(in: .whitespacesAndNewlines)
+                    .range(of: #"^\d{10,}$"#, options: .regularExpression) != nil {
+                start = min(lines.count - 1, start + 1)
+            }
+            // Fallback: only if we still have no anchor, look for a long numeric-only line
+            if start == 0, let codeIdx = lines.firstIndex(where: { $0.range(of: #"\b\d{10,}\b"#, options: .regularExpression) != nil }) {
+                start = min(lines.count - 1, codeIdx + 1)
             }
             if let subIdx = lines.firstIndex(where: { $0.lowercased().contains("subtotal") }) { end = max(start, subIdx - 1) }
         case .tanA:
@@ -69,7 +79,8 @@ struct ScanReceiptHelper {
         "receipt","order","number","trans","terminal","date","time","tel","phone","address",
         "street","ave","avenue","blvd","boulevard","road","rd","drive",
         "invoice","batch","clerk","cashier","pos","merchant","thank","visit","welcome",
-        "container","tare","tare weight","reg","saving","savings", "each"
+        "container","tare","tare weight","reg","saving","savings", "each",
+        "voided"
     ]
 
     // Extra patterns that require word-boundary matching to avoid over-filtering
