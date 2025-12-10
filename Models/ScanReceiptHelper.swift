@@ -198,15 +198,19 @@ struct ScanReceiptHelper {
     }
     
     static func parseAnyDate(_ s: String) -> Date? {
-        if let d = SharedProperties.parseStringToDate(from: s, to: "yyyy-MM-dd") { return d }
-        if let d = SharedProperties.parseStringToDate(from: s, to: "MM/dd/yyyy") { return d }
-        if let d = SharedProperties.parseStringToDate(from: s, to: "M/d/yyyy") { return d }
-        if let d = SharedProperties.parseStringToDate(from: s, to: "MM-dd-yyyy") { return d }
-        if let d = SharedProperties.parseStringToDate(from: s, to: "dd MMM yyyy") { return d }
-        if let d = SharedProperties.parseStringToDate(from: s, to: "MMM dd, yyyy") { return d }
-        if let d = SharedProperties.parseStringToDate(from: s, to: "MMM dd yyyy") { return d }
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Normalize two-digit years (e.g., 10/15/25 -> 2025) before general parsing so we do not get year 0025.
+        if let d = parseTwoDigitYearDate(trimmed) { return d }
         
-        let slashed = s.replacingOccurrences(of: "-", with: "/")
+        if let d = SharedProperties.parseStringToDate(from: trimmed, to: "yyyy-MM-dd") { return d }
+        if let d = SharedProperties.parseStringToDate(from: trimmed, to: "MM/dd/yyyy") { return d }
+        if let d = SharedProperties.parseStringToDate(from: trimmed, to: "M/d/yyyy") { return d }
+        if let d = SharedProperties.parseStringToDate(from: trimmed, to: "MM-dd-yyyy") { return d }
+        if let d = SharedProperties.parseStringToDate(from: trimmed, to: "dd MMM yyyy") { return d }
+        if let d = SharedProperties.parseStringToDate(from: trimmed, to: "MMM dd, yyyy") { return d }
+        if let d = SharedProperties.parseStringToDate(from: trimmed, to: "MMM dd yyyy") { return d }
+        
+        let slashed = trimmed.replacingOccurrences(of: "-", with: "/")
         let comps = slashed.split(separator: "/")
         if comps.count == 3, comps[2].count == 2, let yy = Int(comps[2]) {
             let year = 2000 + yy
@@ -216,6 +220,23 @@ struct ScanReceiptHelper {
             return SharedProperties.parseStringToDate(from: iso, to: "yyyy-MM-dd")
         }
         return nil
+    }
+    
+    private static func parseTwoDigitYearDate(_ s: String) -> Date? {
+        let pattern = #"^\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2})\s*$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
+        let range = NSRange(location: 0, length: s.utf16.count)
+        guard let match = regex.firstMatch(in: s, options: [], range: range), match.numberOfRanges == 4 else { return nil }
+        guard let monthRange = Range(match.range(at: 1), in: s),
+              let dayRange = Range(match.range(at: 2), in: s),
+              let yearRange = Range(match.range(at: 3), in: s),
+              let month = Int(s[monthRange]),
+              let day = Int(s[dayRange]),
+              let yearTwoDigit = Int(s[yearRange]) else { return nil }
+        
+        let year = 2000 + yearTwoDigit
+        let iso = String(format: "%04d-%02d-%02d", year, month, day)
+        return SharedProperties.parseStringToDate(from: iso, to: "yyyy-MM-dd")
     }
     
     static func normalizeToLocalMidday(_ date: Date) -> Date {
